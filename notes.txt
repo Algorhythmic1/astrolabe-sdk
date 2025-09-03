@@ -1,0 +1,11 @@
+In order to run the createAccountTest.ts:
+
+1) Start a validator
+2) anchor deploy
+ a) if your keypair doesn't have funds, airdrop to it 
+3) run the script
+
+
+Codama can't handle nested account definitions that include parameters with the same name. You have to rename the duplicate creator variables in createTransactionFromBuffer.ts. We could fork Codama and try to address this, or use this shortcut
+
+We still need to investigate how to create and serialize unsigned transaction buffers with Kit so we can use it with astrolabe.

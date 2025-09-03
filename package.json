@@ -1,0 +1,29 @@
+{
+    "name": "astrolabe-sc-sdk",
+    "version": "0.1.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist",
+        "*.ts",
+        "clients",
+        "tsconfig.json"
+    ],
+    "workspaces": [],
+    "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build",
+        "postinstall": "echo 'SDK installed successfully'"
+    },
+    "license": "MIT",
+    "dependencies": {
+        "@solana-developers/helpers": "^1.2.0",
+        "@solana-program/compute-budget": "^0.8.0",
+        "@solana-program/memo": "^0.7.0",
+        "@solana-program/token": "^0.5.1",
+        "@solana/kit": "^2.2.1",
+        "@solana/web3.js": "^1.91.8",
+        "bs58": "^5.0.0",
+        "buffer": "^6.0.3"
+    }
+}
