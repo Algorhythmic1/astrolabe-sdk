@@ -143,6 +143,7 @@ export async function createComplexTransaction(
   console.log('🔍 compiledInnerMessage:', { messageBytes: `Uint8Array(${compiledInnerMessage.messageBytes.length})` });
   console.log('🔍 messageBytes type:', typeof compiledInnerMessage.messageBytes);
   console.log('🔍 messageBytes length:', compiledInnerMessage.messageBytes.length);
+  console.log('🔍 messageBytes first 16 bytes:', Array.from(compiledInnerMessage.messageBytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '));
   console.log('✅ Message decoded successfully');
 
   const decodedMessage = decodeTransactionMessage(compiledInnerMessage.messageBytes);
@@ -152,33 +153,51 @@ export async function createComplexTransaction(
     messageSize: compiledInnerMessage.messageBytes.length,
   });
 
-  console.log('🔧 Creating smart account transaction message...');
-  // Manually construct the smart account transaction message
+  console.log('🔧 Converting Jupiter transaction to smart account format...');
+  // Convert from Jupiter's standard Solana format to smart account's custom format
+  const numSigners = decodedMessage.header.numSignerAccounts;
+  const numReadonlySigners = decodedMessage.header.numReadonlySignerAccounts;
+  const numWritableSigners = numSigners - numReadonlySigners;
+  const numWritableNonSigners = decodedMessage.staticAccounts.length - numSigners - decodedMessage.header.numReadonlyNonSignerAccounts;
+  
   const smartAccountMessage = {
-    numSigners: 1,
-    numWritableSigners: 1,
-    numWritableNonSigners: decodedMessage.staticAccounts.length - 1,
+    numSigners: numSigners,
+    numWritableSigners: numWritableSigners,
+    numWritableNonSigners: numWritableNonSigners,
     accountKeys: decodedMessage.staticAccounts,
     instructions: decodedMessage.instructions.map(ix => ({
       programIdIndex: ix.programAddressIndex,
       accountIndexes: new Uint8Array(ix.accountIndices ?? []),
       data: ix.data ?? new Uint8Array(),
     })),
-    addressTableLookups: [],
+    // Handle address table lookups if present (for versioned transactions)
+    addressTableLookups: 'addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups
+      ? decodedMessage.addressTableLookups.map(lookup => ({
+          accountKey: lookup.lookupTableAddress,
+          writableIndexes: new Uint8Array(lookup.writableIndexes ?? []),
+          readonlyIndexes: new Uint8Array(lookup.readonlyIndexes ?? []),
+        }))
+      : [],
   };
 
+  console.log('🔧 Encoding smart account transaction message...');
   const transactionMessageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
   console.log('✅ Smart account transaction message encoded:', {
     messageSize: transactionMessageBytes.length,
     numSigners: smartAccountMessage.numSigners,
     numAccounts: smartAccountMessage.accountKeys.length,
-    numInstructions: smartAccountMessage.instructions.length
+    numInstructions: smartAccountMessage.instructions.length,
+    innerJupiterSize: transactionMessageBytes.length,
+    estimatedProposeSize: transactionMessageBytes.length + 200 // rough estimate
   });
 
   // ===== PART 1: PROPOSE + VOTE TRANSACTION =====
   console.log('🔧 Building Part 1: Propose + Vote Transaction...');
 
   // 5. Create the transaction account instruction
+  console.log('🔧 Creating CreateTransaction instruction with transactionMessage of', transactionMessageBytes.length, 'bytes');
+  console.log('🔍 transactionMessage first 16 bytes:', Array.from(transactionMessageBytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+  
   const createTransactionInstruction = getCreateTransactionInstruction({
     settings: smartAccountSettings,
     transaction: transactionPda,
