@@ -176,16 +176,12 @@ async function createComplexTransaction(params) {
         transaction: transactionPda,
         signer: signer,
     });
-    // Add the required accounts for the inner instructions to the execute instruction
-    for (const accountKey of decodedMessage.staticAccounts) {
-        executeTransactionInstruction.accounts.push({
-            address: accountKey,
-            role: 1, // AccountRole.WRITABLE - simplified for now
-        });
-    }
-    // Add Address Lookup Table accounts if present (required for versioned transactions)
+    // Add accounts in the exact order expected by ExecuteTransaction:
+    // 1. Address Lookup Table accounts FIRST
+    // 2. Message accounts (staticAccounts) SECOND
+    // Add Address Lookup Table accounts FIRST (required for versioned transactions)
     if ('addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups) {
-        console.log('🔧 Adding Address Lookup Table accounts to execute instruction...');
+        console.log('🔧 Adding Address Lookup Table accounts FIRST to execute instruction...');
         for (const lookup of decodedMessage.addressTableLookups) {
             console.log('📋 Adding ALT account:', lookup.lookupTableAddress.toString());
             executeTransactionInstruction.accounts.push({
@@ -193,6 +189,14 @@ async function createComplexTransaction(params) {
                 role: 0, // AccountRole.READONLY - ALT accounts are readonly
             });
         }
+    }
+    // Add the required accounts for the inner instructions SECOND
+    console.log('🔧 Adding static accounts SECOND to execute instruction...');
+    for (const accountKey of decodedMessage.staticAccounts) {
+        executeTransactionInstruction.accounts.push({
+            address: accountKey,
+            role: 1, // AccountRole.WRITABLE - simplified for now
+        });
     }
     const executeInstructions = [executeTransactionInstruction];
     const executeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(executeInstructions, tx));
