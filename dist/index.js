@@ -16,3 +16,4 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", { value: true });
 __exportStar(require("./createSmartAccount"), exports);
 __exportStar(require("./proposeVoteExecute"), exports);
+__exportStar(require("./complexTransaction"), exports);

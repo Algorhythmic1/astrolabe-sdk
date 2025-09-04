@@ -13,15 +13,7 @@ export type SmartAccountInfo = {
     /** The smart account PDA bump seed */
     smartAccountPdaBump: number;
 };
-/**
- * Derives smart account PDA and related info from a settings address
- *
- * @param rpc - The RPC client
- * @param settingsAddress - The smart account settings PDA
- * @param accountIndex - Optional account index to use if settings account doesn't exist
- * @returns Smart account info including the PDA and bump
- */
-export declare function deriveSmartAccountInfo(rpc: SolanaRpc, settingsAddress: Address, accountIndex?: bigint): Promise<SmartAccountInfo>;
+export { deriveSmartAccountInfo } from './utils';
 /**
  * Parameters for the propose-vote-execute workflow
  */
@@ -65,4 +57,3 @@ export type ProposeVoteExecuteResult = {
  * @returns Promise resolving to transaction buffer and metadata
  */
 export declare function createProposeVoteExecuteTransaction(params: ProposeVoteExecuteParams): Promise<ProposeVoteExecuteResult>;
-export {};

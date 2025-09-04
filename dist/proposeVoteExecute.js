@@ -1,57 +1,14 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deriveSmartAccountInfo = deriveSmartAccountInfo;
+exports.deriveSmartAccountInfo = void 0;
 exports.createProposeVoteExecuteTransaction = createProposeVoteExecuteTransaction;
 const kit_1 = require("@solana/kit");
-const buffer_1 = require("buffer");
-const settings_1 = require("./clients/js/src/generated/accounts/settings");
 const instructions_1 = require("./clients/js/src/generated/instructions");
-const programs_1 = require("./clients/js/src/generated/programs");
 const smartAccountTransactionMessage_1 = require("./clients/js/src/generated/types/smartAccountTransactionMessage");
-const bs58_1 = __importDefault(require("bs58"));
-/**
- * Derives smart account PDA and related info from a settings address
- *
- * @param rpc - The RPC client
- * @param settingsAddress - The smart account settings PDA
- * @param accountIndex - Optional account index to use if settings account doesn't exist
- * @returns Smart account info including the PDA and bump
- */
-async function deriveSmartAccountInfo(rpc, settingsAddress, accountIndex) {
-    // Always use account_index = 0 for the primary smart account
-    // The accountIndex parameter is kept for compatibility but ignored
-    console.log('🔧 Using account index 0 for primary smart account (ignoring any provided accountIndex)');
-    // Derive the smart account PDA using account_index = 0 (primary smart account)
-    // This matches the working example and the expected u8 type in the program
-    console.log('🔧 Deriving smart account PDA with:', {
-        settingsAddress: settingsAddress.toString(),
-        accountIndex: '0',
-        programAddress: programs_1.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS.toString()
-    });
-    const [smartAccountPda, smartAccountPdaBump] = await (0, kit_1.getProgramDerivedAddress)({
-        programAddress: programs_1.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-        seeds: [
-            new Uint8Array(buffer_1.Buffer.from('smart_account')),
-            bs58_1.default.decode(settingsAddress),
-            new Uint8Array(buffer_1.Buffer.from('smart_account')),
-            // Use account_index 0 for the primary smart account (matches working example)
-            new Uint8Array([0]),
-        ],
-    });
-    console.log('✅ Derived smart account PDA:', {
-        smartAccountPda: smartAccountPda.toString(),
-        bump: smartAccountPdaBump
-    });
-    return {
-        smartAccountPda,
-        settingsAddress,
-        accountIndex: 0n, // Always 0 for primary smart account
-        smartAccountPdaBump,
-    };
-}
+const utils_1 = require("./utils");
+// Re-export deriveSmartAccountInfo from utils for backward compatibility
+var utils_2 = require("./utils");
+Object.defineProperty(exports, "deriveSmartAccountInfo", { enumerable: true, get: function () { return utils_2.deriveSmartAccountInfo; } });
 /**
  * High-level function that combines the smart account propose-vote-execute pattern
  * into a single serialized transaction. This creates a transaction, proposal, approves it,
@@ -110,37 +67,20 @@ async function createProposeVoteExecuteTransaction(params) {
     }
     console.log('🔧 Step 1: Fetching latest settings state...');
     // 1. Fetch the latest on-chain state for the Settings account
-    const settings = await (0, settings_1.fetchSettings)(rpc, smartAccountSettings);
-    const transactionIndex = settings.data.transactionIndex + 1n;
+    const settingsData = await (0, utils_1.fetchSmartAccountSettings)(rpc, smartAccountSettings);
+    const transactionIndex = settingsData.nextTransactionIndex;
     console.log('✅ Settings fetched:', {
-        currentTransactionIndex: settings.data.transactionIndex.toString(),
+        currentTransactionIndex: settingsData.currentTransactionIndex.toString(),
         nextTransactionIndex: transactionIndex.toString(),
-        threshold: settings.data.threshold
+        threshold: settingsData.threshold
     });
     console.log('🔧 Step 2: Deriving transaction PDA...');
     // 2. Derive the PDA for the new Transaction account
-    const [transactionPda] = await (0, kit_1.getProgramDerivedAddress)({
-        programAddress: programs_1.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-        seeds: [
-            new Uint8Array(buffer_1.Buffer.from('smart_account')),
-            bs58_1.default.decode(smartAccountSettings),
-            new Uint8Array(buffer_1.Buffer.from('transaction')),
-            new Uint8Array(new BigUint64Array([transactionIndex]).buffer),
-        ],
-    });
+    const transactionPda = await (0, utils_1.deriveTransactionPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Transaction PDA derived:', transactionPda.toString());
     console.log('🔧 Step 3: Deriving proposal PDA...');
-    // 3. Derive the PDA for the Proposal account
-    const [proposalPda] = await (0, kit_1.getProgramDerivedAddress)({
-        programAddress: programs_1.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-        seeds: [
-            new Uint8Array(buffer_1.Buffer.from('smart_account')),
-            bs58_1.default.decode(smartAccountSettings),
-            new Uint8Array(buffer_1.Buffer.from('transaction')),
-            new Uint8Array(new BigUint64Array([transactionIndex]).buffer),
-            new Uint8Array(buffer_1.Buffer.from('proposal')),
-        ],
-    });
+    // 3. Derive the PDA for the new Proposal account
+    const proposalPda = await (0, utils_1.deriveProposalPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Proposal PDA derived:', proposalPda.toString());
     console.log('🔧 Step 4: Building inner transaction message...');
     let compiledInnerMessage;
@@ -169,7 +109,7 @@ async function createProposeVoteExecuteTransaction(params) {
     console.log('🔍 compiledInnerMessage:', compiledInnerMessage);
     console.log('🔍 messageBytes type:', typeof compiledInnerMessage.messageBytes);
     console.log('🔍 messageBytes length:', compiledInnerMessage.messageBytes ? compiledInnerMessage.messageBytes.length : 'undefined');
-    const decodedMessage = (0, kit_1.getCompiledTransactionMessageDecoder)().decode(compiledInnerMessage.messageBytes);
+    const decodedMessage = (0, utils_1.decodeTransactionMessage)(compiledInnerMessage.messageBytes);
     console.log('✅ Message decoded successfully');
     console.log('✅ Inner transaction compiled:', {
         staticAccounts: decodedMessage.staticAccounts ? decodedMessage.staticAccounts.length : 'undefined',

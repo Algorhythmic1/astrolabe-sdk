@@ -23,6 +23,13 @@ import {
 } from './clients/js/src/generated/instructions';
 import { ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS } from './clients/js/src/generated/programs';
 import { getSmartAccountTransactionMessageEncoder } from './clients/js/src/generated/types/smartAccountTransactionMessage';
+import {
+  deriveTransactionPda,
+  deriveProposalPda,
+  fetchSmartAccountSettings,
+  decodeTransactionMessage,
+  deriveSmartAccountInfo,
+} from './utils';
 import bs58 from 'bs58';
 
 type SolanaRpc = ReturnType<typeof createSolanaRpc>;
@@ -41,54 +48,8 @@ export type SmartAccountInfo = {
   smartAccountPdaBump: number;
 };
 
-/**
- * Derives smart account PDA and related info from a settings address
- * 
- * @param rpc - The RPC client
- * @param settingsAddress - The smart account settings PDA
- * @param accountIndex - Optional account index to use if settings account doesn't exist
- * @returns Smart account info including the PDA and bump
- */
-export async function deriveSmartAccountInfo(
-  rpc: SolanaRpc,
-  settingsAddress: Address,
-  accountIndex?: bigint
-): Promise<SmartAccountInfo> {
-  // Always use account_index = 0 for the primary smart account
-  // The accountIndex parameter is kept for compatibility but ignored
-  console.log('🔧 Using account index 0 for primary smart account (ignoring any provided accountIndex)');
-
-  // Derive the smart account PDA using account_index = 0 (primary smart account)
-  // This matches the working example and the expected u8 type in the program
-  console.log('🔧 Deriving smart account PDA with:', {
-    settingsAddress: settingsAddress.toString(),
-    accountIndex: '0',
-    programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS.toString()
-  });
-
-  const [smartAccountPda, smartAccountPdaBump] = await getProgramDerivedAddress({
-    programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-    seeds: [
-      new Uint8Array(Buffer.from('smart_account')),
-      bs58.decode(settingsAddress),
-      new Uint8Array(Buffer.from('smart_account')),
-      // Use account_index 0 for the primary smart account (matches working example)
-      new Uint8Array([0]),
-    ],
-  });
-
-  console.log('✅ Derived smart account PDA:', {
-    smartAccountPda: smartAccountPda.toString(),
-    bump: smartAccountPdaBump
-  });
-
-  return {
-    smartAccountPda,
-    settingsAddress,
-    accountIndex: 0n, // Always 0 for primary smart account
-    smartAccountPdaBump,
-  };
-}
+// Re-export deriveSmartAccountInfo from utils for backward compatibility
+export { deriveSmartAccountInfo } from './utils';
 
 /**
  * Parameters for the propose-vote-execute workflow
@@ -190,39 +151,22 @@ export async function createProposeVoteExecuteTransaction(
 
   console.log('🔧 Step 1: Fetching latest settings state...');
   // 1. Fetch the latest on-chain state for the Settings account
-  const settings = await fetchSettings(rpc, smartAccountSettings);
-  const transactionIndex = settings.data.transactionIndex + 1n;
+  const settingsData = await fetchSmartAccountSettings(rpc, smartAccountSettings);
+  const transactionIndex = settingsData.nextTransactionIndex;
   console.log('✅ Settings fetched:', {
-    currentTransactionIndex: settings.data.transactionIndex.toString(),
+    currentTransactionIndex: settingsData.currentTransactionIndex.toString(),
     nextTransactionIndex: transactionIndex.toString(),
-    threshold: settings.data.threshold
+    threshold: settingsData.threshold
   });
 
   console.log('🔧 Step 2: Deriving transaction PDA...');
   // 2. Derive the PDA for the new Transaction account
-  const [transactionPda] = await getProgramDerivedAddress({
-    programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-    seeds: [
-      new Uint8Array(Buffer.from('smart_account')),
-      bs58.decode(smartAccountSettings),
-      new Uint8Array(Buffer.from('transaction')),
-      new Uint8Array(new BigUint64Array([transactionIndex]).buffer),
-    ],
-  });
+  const transactionPda = await deriveTransactionPda(smartAccountSettings, transactionIndex);
   console.log('✅ Transaction PDA derived:', transactionPda.toString());
 
   console.log('🔧 Step 3: Deriving proposal PDA...');
-  // 3. Derive the PDA for the Proposal account
-  const [proposalPda] = await getProgramDerivedAddress({
-    programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-    seeds: [
-      new Uint8Array(Buffer.from('smart_account')),
-      bs58.decode(smartAccountSettings),
-      new Uint8Array(Buffer.from('transaction')),
-      new Uint8Array(new BigUint64Array([transactionIndex]).buffer),
-      new Uint8Array(Buffer.from('proposal')),
-    ],
-  });
+  // 3. Derive the PDA for the new Proposal account
+  const proposalPda = await deriveProposalPda(smartAccountSettings, transactionIndex);
   console.log('✅ Proposal PDA derived:', proposalPda.toString());
 
   console.log('🔧 Step 4: Building inner transaction message...');
@@ -263,7 +207,7 @@ export async function createProposeVoteExecuteTransaction(
   console.log('🔍 messageBytes type:', typeof compiledInnerMessage.messageBytes);
   console.log('🔍 messageBytes length:', compiledInnerMessage.messageBytes ? compiledInnerMessage.messageBytes.length : 'undefined');
   
-  const decodedMessage = getCompiledTransactionMessageDecoder().decode(compiledInnerMessage.messageBytes);
+  const decodedMessage = decodeTransactionMessage(compiledInnerMessage.messageBytes);
   console.log('✅ Message decoded successfully');
   
   console.log('✅ Inner transaction compiled:', {
