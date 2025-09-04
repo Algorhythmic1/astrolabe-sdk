@@ -6,9 +6,10 @@ const instructions_1 = require("./clients/js/src/generated/instructions");
 const smartAccountTransactionMessage_1 = require("./clients/js/src/generated/types/smartAccountTransactionMessage");
 const index_1 = require("./utils/index");
 /**
- * Creates a complex transaction split into two parts for large transactions like swaps
- * Part 1: propose + vote (smaller transaction)
- * Part 2: execute (larger transaction with embedded inner transaction)
+ * Creates a complex transaction split into three parts for large transactions like swaps
+ * Part 1: propose (contains Jupiter data - medium size)
+ * Part 2: vote (minimal size)
+ * Part 3: execute (medium size with account references)
  */
 async function createComplexTransaction(params) {
     console.log('🚀 Starting createComplexTransaction...');
@@ -129,22 +130,29 @@ async function createComplexTransaction(params) {
         systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
         args: { memo: null },
     });
-    // Build Part 1 transaction (propose + vote)
-    const proposeVoteInstructions = [
+    // Build Part 1 transaction (propose only - contains the large Jupiter data)
+    const proposeInstructions = [
         createTransactionInstruction,
         createProposalInstruction,
-        approveProposalInstruction,
     ];
     const latestBlockhashResponse = await rpc.getLatestBlockhash().send();
     const latestBlockhash = latestBlockhashResponse.value;
-    const proposeVoteTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(proposeVoteInstructions, tx));
-    const compiledProposeVoteTransaction = (0, kit_1.compileTransaction)(proposeVoteTransactionMessage);
-    console.log('✅ Part 1 (Propose + Vote) transaction compiled:', {
-        messageSize: compiledProposeVoteTransaction.messageBytes.length
+    const proposeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(proposeInstructions, tx));
+    const compiledProposeTransaction = (0, kit_1.compileTransaction)(proposeTransactionMessage);
+    console.log('✅ Part 1 (Propose) transaction compiled:', {
+        messageSize: compiledProposeTransaction.messageBytes.length
     });
-    // ===== PART 2: EXECUTE TRANSACTION =====
-    console.log('🔧 Building Part 2: Execute Transaction...');
-    // 8. Create the execute transaction instruction
+    // ===== PART 2: VOTE TRANSACTION =====
+    console.log('🔧 Building Part 2: Vote Transaction...');
+    const voteInstructions = [approveProposalInstruction];
+    const voteTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(voteInstructions, tx));
+    const compiledVoteTransaction = (0, kit_1.compileTransaction)(voteTransactionMessage);
+    console.log('✅ Part 2 (Vote) transaction compiled:', {
+        messageSize: compiledVoteTransaction.messageBytes.length
+    });
+    // ===== PART 3: EXECUTE TRANSACTION =====
+    console.log('🔧 Building Part 3: Execute Transaction...');
+    // Create the execute transaction instruction
     const executeTransactionInstruction = (0, instructions_1.getExecuteTransactionInstruction)({
         settings: smartAccountSettings,
         proposal: proposalPda,
@@ -158,21 +166,22 @@ async function createComplexTransaction(params) {
             role: 1, // AccountRole.WRITABLE - simplified for now
         });
     }
-    // Build Part 2 transaction (execute only)
     const executeInstructions = [executeTransactionInstruction];
     const executeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(executeInstructions, tx));
     const compiledExecuteTransaction = (0, kit_1.compileTransaction)(executeTransactionMessage);
-    console.log('✅ Part 2 (Execute) transaction compiled:', {
+    console.log('✅ Part 3 (Execute) transaction compiled:', {
         messageSize: compiledExecuteTransaction.messageBytes.length
     });
     console.log('🎉 Complex transaction split completed:', {
-        part1Size: compiledProposeVoteTransaction.messageBytes.length,
-        part2Size: compiledExecuteTransaction.messageBytes.length,
-        totalSize: compiledProposeVoteTransaction.messageBytes.length + compiledExecuteTransaction.messageBytes.length,
+        part1Size: compiledProposeTransaction.messageBytes.length,
+        part2Size: compiledVoteTransaction.messageBytes.length,
+        part3Size: compiledExecuteTransaction.messageBytes.length,
+        totalSize: compiledProposeTransaction.messageBytes.length + compiledVoteTransaction.messageBytes.length + compiledExecuteTransaction.messageBytes.length,
         transactionIndex: transactionIndex.toString()
     });
     return {
-        proposeVoteTransactionBuffer: new Uint8Array(compiledProposeVoteTransaction.messageBytes),
+        proposeTransactionBuffer: new Uint8Array(compiledProposeTransaction.messageBytes),
+        voteTransactionBuffer: new Uint8Array(compiledVoteTransaction.messageBytes),
         executeTransactionBuffer: new Uint8Array(compiledExecuteTransaction.messageBytes),
         transactionPda,
         proposalPda,

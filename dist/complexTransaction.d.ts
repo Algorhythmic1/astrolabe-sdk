@@ -17,9 +17,11 @@ export interface ComplexTransactionParams {
     memo?: string;
 }
 export interface ComplexTransactionResult {
-    /** First transaction: propose + vote */
-    proposeVoteTransactionBuffer: Uint8Array;
-    /** Second transaction: execute */
+    /** First transaction: propose only (contains Jupiter data) */
+    proposeTransactionBuffer: Uint8Array;
+    /** Second transaction: vote only */
+    voteTransactionBuffer: Uint8Array;
+    /** Third transaction: execute only */
     executeTransactionBuffer: Uint8Array;
     /** Transaction PDA address */
     transactionPda: Address;
@@ -29,9 +31,10 @@ export interface ComplexTransactionResult {
     transactionIndex: bigint;
 }
 /**
- * Creates a complex transaction split into two parts for large transactions like swaps
- * Part 1: propose + vote (smaller transaction)
- * Part 2: execute (larger transaction with embedded inner transaction)
+ * Creates a complex transaction split into three parts for large transactions like swaps
+ * Part 1: propose (contains Jupiter data - medium size)
+ * Part 2: vote (minimal size)
+ * Part 3: execute (medium size with account references)
  */
 export declare function createComplexTransaction(params: ComplexTransactionParams): Promise<ComplexTransactionResult>;
 export {};
