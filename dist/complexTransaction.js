@@ -4,7 +4,7 @@ exports.createComplexTransaction = createComplexTransaction;
 const kit_1 = require("@solana/kit");
 const instructions_1 = require("./clients/js/src/generated/instructions");
 const smartAccountTransactionMessage_1 = require("./clients/js/src/generated/types/smartAccountTransactionMessage");
-const utils_1 = require("./utils");
+const index_1 = require("./utils/index");
 /**
  * Creates a complex transaction split into two parts for large transactions like swaps
  * Part 1: propose + vote (smaller transaction)
@@ -40,7 +40,7 @@ async function createComplexTransaction(params) {
     }
     console.log('🔧 Step 1: Fetching latest settings state...');
     // 1. Fetch the current smart account settings to get the next transaction index
-    const settingsAccount = await (0, utils_1.fetchSmartAccountSettings)(rpc, smartAccountSettings);
+    const settingsAccount = await (0, index_1.fetchSmartAccountSettings)(rpc, smartAccountSettings);
     const transactionIndex = settingsAccount.nextTransactionIndex;
     console.log('✅ Settings fetched:', {
         currentTransactionIndex: settingsAccount.currentTransactionIndex.toString(),
@@ -49,11 +49,11 @@ async function createComplexTransaction(params) {
     });
     console.log('🔧 Step 2: Deriving transaction PDA...');
     // 2. Derive the transaction PDA
-    const transactionPda = await (0, utils_1.deriveTransactionPda)(smartAccountSettings, transactionIndex);
+    const transactionPda = await (0, index_1.deriveTransactionPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Transaction PDA derived:', transactionPda.toString());
     console.log('🔧 Step 3: Deriving proposal PDA...');
     // 3. Derive the proposal PDA
-    const proposalPda = await (0, utils_1.deriveProposalPda)(smartAccountSettings, transactionIndex);
+    const proposalPda = await (0, index_1.deriveProposalPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Proposal PDA derived:', proposalPda.toString());
     console.log('🔧 Step 4: Building inner transaction message...');
     console.log('🔧 Using raw transaction bytes (preserving ALT structure)...');
@@ -67,7 +67,7 @@ async function createComplexTransaction(params) {
     console.log('🔍 messageBytes type:', typeof compiledInnerMessage.messageBytes);
     console.log('🔍 messageBytes length:', compiledInnerMessage.messageBytes.length);
     console.log('✅ Message decoded successfully');
-    const decodedMessage = (0, utils_1.decodeTransactionMessage)(compiledInnerMessage.messageBytes);
+    const decodedMessage = (0, index_1.decodeTransactionMessage)(compiledInnerMessage.messageBytes);
     console.log('✅ Inner transaction compiled:', {
         staticAccounts: decodedMessage.staticAccounts.length,
         instructions: decodedMessage.instructions.length,

@@ -5,10 +5,10 @@ exports.createProposeVoteExecuteTransaction = createProposeVoteExecuteTransactio
 const kit_1 = require("@solana/kit");
 const instructions_1 = require("./clients/js/src/generated/instructions");
 const smartAccountTransactionMessage_1 = require("./clients/js/src/generated/types/smartAccountTransactionMessage");
-const utils_1 = require("./utils");
+const index_1 = require("./utils/index");
 // Re-export deriveSmartAccountInfo from utils for backward compatibility
-var utils_2 = require("./utils");
-Object.defineProperty(exports, "deriveSmartAccountInfo", { enumerable: true, get: function () { return utils_2.deriveSmartAccountInfo; } });
+var index_2 = require("./utils/index");
+Object.defineProperty(exports, "deriveSmartAccountInfo", { enumerable: true, get: function () { return index_2.deriveSmartAccountInfo; } });
 /**
  * High-level function that combines the smart account propose-vote-execute pattern
  * into a single serialized transaction. This creates a transaction, proposal, approves it,
@@ -67,7 +67,7 @@ async function createProposeVoteExecuteTransaction(params) {
     }
     console.log('🔧 Step 1: Fetching latest settings state...');
     // 1. Fetch the latest on-chain state for the Settings account
-    const settingsData = await (0, utils_1.fetchSmartAccountSettings)(rpc, smartAccountSettings);
+    const settingsData = await (0, index_1.fetchSmartAccountSettings)(rpc, smartAccountSettings);
     const transactionIndex = settingsData.nextTransactionIndex;
     console.log('✅ Settings fetched:', {
         currentTransactionIndex: settingsData.currentTransactionIndex.toString(),
@@ -76,11 +76,11 @@ async function createProposeVoteExecuteTransaction(params) {
     });
     console.log('🔧 Step 2: Deriving transaction PDA...');
     // 2. Derive the PDA for the new Transaction account
-    const transactionPda = await (0, utils_1.deriveTransactionPda)(smartAccountSettings, transactionIndex);
+    const transactionPda = await (0, index_1.deriveTransactionPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Transaction PDA derived:', transactionPda.toString());
     console.log('🔧 Step 3: Deriving proposal PDA...');
     // 3. Derive the PDA for the new Proposal account
-    const proposalPda = await (0, utils_1.deriveProposalPda)(smartAccountSettings, transactionIndex);
+    const proposalPda = await (0, index_1.deriveProposalPda)(smartAccountSettings, transactionIndex);
     console.log('✅ Proposal PDA derived:', proposalPda.toString());
     console.log('🔧 Step 4: Building inner transaction message...');
     let compiledInnerMessage;
@@ -109,7 +109,7 @@ async function createProposeVoteExecuteTransaction(params) {
     console.log('🔍 compiledInnerMessage:', compiledInnerMessage);
     console.log('🔍 messageBytes type:', typeof compiledInnerMessage.messageBytes);
     console.log('🔍 messageBytes length:', compiledInnerMessage.messageBytes ? compiledInnerMessage.messageBytes.length : 'undefined');
-    const decodedMessage = (0, utils_1.decodeTransactionMessage)(compiledInnerMessage.messageBytes);
+    const decodedMessage = (0, index_1.decodeTransactionMessage)(compiledInnerMessage.messageBytes);
     console.log('✅ Message decoded successfully');
     console.log('✅ Inner transaction compiled:', {
         staticAccounts: decodedMessage.staticAccounts ? decodedMessage.staticAccounts.length : 'undefined',

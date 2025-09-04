@@ -29,7 +29,7 @@ import {
   fetchSmartAccountSettings,
   decodeTransactionMessage,
   deriveSmartAccountInfo,
-} from './utils';
+} from './utils/index';
 import bs58 from 'bs58';
 
 type SolanaRpc = ReturnType<typeof createSolanaRpc>;
@@ -49,7 +49,7 @@ export type SmartAccountInfo = {
 };
 
 // Re-export deriveSmartAccountInfo from utils for backward compatibility
-export { deriveSmartAccountInfo } from './utils';
+export { deriveSmartAccountInfo } from './utils/index';
 
 /**
  * Parameters for the propose-vote-execute workflow

@@ -13,7 +13,7 @@ export type SmartAccountInfo = {
     /** The smart account PDA bump seed */
     smartAccountPdaBump: number;
 };
-export { deriveSmartAccountInfo } from './utils';
+export { deriveSmartAccountInfo } from './utils/index';
 /**
  * Parameters for the propose-vote-execute workflow
  */

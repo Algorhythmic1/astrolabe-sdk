@@ -27,7 +27,7 @@ import {
   deriveProposalPda,
   fetchSmartAccountSettings,
   decodeTransactionMessage,
-} from './utils';
+} from './utils/index';
 
 export interface ComplexTransactionParams {
   /** RPC client for blockchain interaction */
