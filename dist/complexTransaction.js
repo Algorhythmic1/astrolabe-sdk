@@ -183,6 +183,17 @@ async function createComplexTransaction(params) {
             role: 1, // AccountRole.WRITABLE - simplified for now
         });
     }
+    // Add Address Lookup Table accounts if present (required for versioned transactions)
+    if ('addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups) {
+        console.log('🔧 Adding Address Lookup Table accounts to execute instruction...');
+        for (const lookup of decodedMessage.addressTableLookups) {
+            console.log('📋 Adding ALT account:', lookup.lookupTableAddress.toString());
+            executeTransactionInstruction.accounts.push({
+                address: lookup.lookupTableAddress,
+                role: 0, // AccountRole.READONLY - ALT accounts are readonly
+            });
+        }
+    }
     const executeInstructions = [executeTransactionInstruction];
     const executeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(executeInstructions, tx));
     const compiledExecuteTransaction = (0, kit_1.compileTransaction)(executeTransactionMessage);

@@ -289,6 +289,18 @@ export async function createComplexTransaction(
     });
   }
 
+  // Add Address Lookup Table accounts if present (required for versioned transactions)
+  if ('addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups) {
+    console.log('🔧 Adding Address Lookup Table accounts to execute instruction...');
+    for (const lookup of decodedMessage.addressTableLookups) {
+      console.log('📋 Adding ALT account:', lookup.lookupTableAddress.toString());
+      executeTransactionInstruction.accounts.push({
+        address: lookup.lookupTableAddress,
+        role: 0, // AccountRole.READONLY - ALT accounts are readonly
+      });
+    }
+  }
+
   const executeInstructions = [executeTransactionInstruction];
 
   const executeTransactionMessage = pipe(
