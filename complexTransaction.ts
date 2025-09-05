@@ -289,23 +289,38 @@ export async function createComplexTransaction(
   // Add Address Lookup Table accounts FIRST (required for versioned transactions)
   if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Adding Address Lookup Table accounts FIRST to execute instruction...');
+    console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups, null, 2));
+    
     for (const lookup of addressTableLookups) {
       console.log('📋 Adding ALT account:', lookup.accountKey.toString());
+      console.log('📋 ALT writable indexes:', lookup.writableIndexes);
+      console.log('📋 ALT readonly indexes:', lookup.readonlyIndexes);
+      
       executeTransactionInstruction.accounts.push({
         address: lookup.accountKey,
         role: 0, // AccountRole.READONLY - ALT accounts are readonly
       });
     }
+    
+    console.log('✅ Added', addressTableLookups.length, 'ALT accounts to execute instruction');
+  } else {
+    console.log('⚠️ No address table lookups found');
   }
 
   // Add the required accounts for the inner instructions SECOND
   console.log('🔧 Adding static accounts SECOND to execute instruction...');
+  console.log('🔍 Static accounts from decoded message:', decodedMessage.staticAccounts?.map(addr => addr.toString()));
+  
   for (const accountKey of decodedMessage.staticAccounts) {
+    console.log('📋 Adding static account:', accountKey.toString());
     executeTransactionInstruction.accounts.push({
       address: accountKey,
       role: 1, // AccountRole.WRITABLE - simplified for now
     });
   }
+  
+  console.log('✅ Total accounts added to execute instruction:', executeTransactionInstruction.accounts.length);
+  console.log('🔍 Final execute instruction accounts:', executeTransactionInstruction.accounts.map(acc => `${acc.address.toString()} (role: ${acc.role})`));
 
   const executeInstructions = [executeTransactionInstruction];
 
