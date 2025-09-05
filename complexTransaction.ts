@@ -10,6 +10,7 @@ import {
   createSolanaRpc,
   type TransactionSigner,
 } from '@solana/kit';
+import bs58 from 'bs58';
 
 type SolanaRpc = ReturnType<typeof createSolanaRpc>;
 
@@ -289,18 +290,111 @@ export async function createComplexTransaction(
     signer: signer,
   });
 
-  // For ALT transactions, we need to trust that Solana runtime will resolve the ALTs
-  // and provide the correct accounts. Let's not add any accounts here and see what happens.
-  console.log('🔧 ALT transaction detected - letting Solana runtime handle account resolution');
+  // The smart contract expects manual ALT resolution - we need to provide:
+  // 1. Static accounts + resolved ALT accounts in message_account_infos
+  // 2. ALT accounts themselves in address_lookup_table_account_infos
+  
+  console.log('🔧 Smart contract expects manual ALT resolution');
   console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups || [], null, 2));
   console.log('🔍 Static accounts:', decodedMessage.staticAccounts?.length || 0);
   
   if (addressTableLookups && addressTableLookups.length > 0) {
-    console.log('⚠️ ALT transaction detected - the smart contract validation may need to be updated');
-    console.log('🔍 Expected ALT account resolution by Solana runtime');
-    console.log('🔍 Total loaded accounts expected:', addressTableLookups.reduce((total, alt) => 
-      total + (alt.writableIndexes?.length || 0) + (alt.readonlyIndexes?.length || 0), 0
-    ));
+    console.log('🔧 Processing ALT transaction - manual resolution required');
+    
+    // First, add all static accounts
+    for (const accountKey of decodedMessage.staticAccounts) {
+      console.log('📋 Adding static account:', accountKey.toString());
+      executeTransactionInstruction.accounts.push({
+        address: accountKey,
+        role: 1, // AccountRole.WRITABLE - simplified for now
+      });
+    }
+    
+    // Then, resolve and add ALL ALT accounts in the order they appear in the message
+    for (const lookup of addressTableLookups) {
+      console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
+      
+      try {
+        // Fetch ALT account and parse its addresses using proper encoding
+        const altAccountInfo = await rpc.getAccountInfo(lookup.accountKey, { 
+          encoding: 'base64',
+          commitment: 'finalized' 
+        }).send();
+        
+        if (!altAccountInfo.value?.data) {
+          throw new Error(`ALT account ${lookup.accountKey} not found`);
+        }
+        
+        // Parse ALT data - it's stored as base64
+        const altDataBase64 = Array.isArray(altAccountInfo.value.data) 
+          ? altAccountInfo.value.data[0] 
+          : altAccountInfo.value.data as string;
+        const altData = Buffer.from(altDataBase64, 'base64');
+        
+        // ALT data structure: 
+        // - 56 bytes header (discriminator + metadata)
+        // - Remaining data: 32-byte public keys 
+        const HEADER_SIZE = 56;
+        const PUBKEY_SIZE = 32;
+        
+        if (altData.length < HEADER_SIZE) {
+          throw new Error(`Invalid ALT data size: ${altData.length}`);
+        }
+        
+        const totalAddresses = Math.floor((altData.length - HEADER_SIZE) / PUBKEY_SIZE);
+        console.log(`🔍 ALT contains ${totalAddresses} addresses`);
+        
+        // Helper function to extract address at specific index
+        const getAddressAtIndex = (index: number): Address => {
+          if (index >= totalAddresses) {
+            throw new Error(`Index ${index} out of bounds for ALT with ${totalAddresses} addresses`);
+          }
+          
+          const offset = HEADER_SIZE + (index * PUBKEY_SIZE);
+          const pubkeyBytes = altData.subarray(offset, offset + PUBKEY_SIZE);
+          
+          // Convert to base58 string (Solana address format)
+          const addressString = bs58.encode(pubkeyBytes);
+          return address(addressString);
+        };
+        
+        // Add writable accounts from ALT (in the order they appear in the message)
+        console.log(`🔧 Processing ${(lookup.writableIndexes || []).length} writable indexes from ALT`);
+        for (const writableIndex of lookup.writableIndexes || []) {
+          const resolvedAddress = getAddressAtIndex(writableIndex);
+          console.log(`📋 Adding writable ALT account [${writableIndex}] → ${resolvedAddress}`);
+          executeTransactionInstruction.accounts.push({
+            address: resolvedAddress,
+            role: 1, // AccountRole.WRITABLE
+          });
+        }
+        
+        // Add readonly accounts from ALT (in the order they appear in the message) 
+        console.log(`🔧 Processing ${(lookup.readonlyIndexes || []).length} readonly indexes from ALT`);
+        for (const readonlyIndex of lookup.readonlyIndexes || []) {
+          const resolvedAddress = getAddressAtIndex(readonlyIndex);
+          console.log(`📋 Adding readonly ALT account [${readonlyIndex}] → ${resolvedAddress}`);
+          executeTransactionInstruction.accounts.push({
+            address: resolvedAddress,
+            role: 0, // AccountRole.READONLY
+          });
+        }
+        
+        console.log(`✅ Successfully resolved ${(lookup.writableIndexes || []).length + (lookup.readonlyIndexes || []).length} accounts from ALT`);
+        
+      } catch (error) {
+        console.error('❌ ALT resolution failed:', error);
+        throw new Error(`Failed to resolve ALT ${lookup.accountKey}: ${error}`);
+      }
+      
+      // Add the ALT account itself at the end (this is what the smart contract validates)
+      console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
+      executeTransactionInstruction.accounts.push({
+        address: lookup.accountKey,
+        role: 0, // AccountRole.READONLY - ALT accounts are readonly
+      });
+    }
+    
   } else {
     // No ALTs, add static accounts normally
     console.log('🔧 No ALTs detected - adding static accounts to execute instruction...');
