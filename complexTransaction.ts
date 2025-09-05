@@ -289,45 +289,32 @@ export async function createComplexTransaction(
     signer: signer,
   });
 
-  // Add accounts in the exact order expected by ExecuteTransaction:
-  // 1. Address Lookup Table accounts FIRST
-  // 2. Message accounts (staticAccounts) SECOND
+  // For ALT transactions, we need to trust that Solana runtime will resolve the ALTs
+  // and provide the correct accounts. Let's not add any accounts here and see what happens.
+  console.log('🔧 ALT transaction detected - letting Solana runtime handle account resolution');
+  console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups || [], null, 2));
+  console.log('🔍 Static accounts:', decodedMessage.staticAccounts?.length || 0);
   
-  // Add Address Lookup Table accounts FIRST (required for versioned transactions)
   if (addressTableLookups && addressTableLookups.length > 0) {
-    console.log('🔧 Adding Address Lookup Table accounts FIRST to execute instruction...');
-    console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups, null, 2));
-    
-    for (const lookup of addressTableLookups) {
-      console.log('📋 Adding ALT account:', lookup.accountKey.toString());
-      console.log('📋 ALT writable indexes:', lookup.writableIndexes);
-      console.log('📋 ALT readonly indexes:', lookup.readonlyIndexes);
-      
+    console.log('⚠️ ALT transaction detected - the smart contract validation may need to be updated');
+    console.log('🔍 Expected ALT account resolution by Solana runtime');
+    console.log('🔍 Total loaded accounts expected:', addressTableLookups.reduce((total, alt) => 
+      total + (alt.writableIndexes?.length || 0) + (alt.readonlyIndexes?.length || 0), 0
+    ));
+  } else {
+    // No ALTs, add static accounts normally
+    console.log('🔧 No ALTs detected - adding static accounts to execute instruction...');
+    for (const accountKey of decodedMessage.staticAccounts) {
+      console.log('📋 Adding static account:', accountKey.toString());
       executeTransactionInstruction.accounts.push({
-        address: lookup.accountKey,
-        role: 0, // AccountRole.READONLY - ALT accounts are readonly
+        address: accountKey,
+        role: 1, // AccountRole.WRITABLE - simplified for now
       });
     }
-    
-    console.log('✅ Added', addressTableLookups.length, 'ALT accounts to execute instruction');
-  } else {
-    console.log('⚠️ No address table lookups found');
-  }
-
-  // Add the required accounts for the inner instructions SECOND
-  console.log('🔧 Adding static accounts SECOND to execute instruction...');
-  console.log('🔍 Static accounts from decoded message:', decodedMessage.staticAccounts?.map(addr => addr.toString()));
-  
-  for (const accountKey of decodedMessage.staticAccounts) {
-    console.log('📋 Adding static account:', accountKey.toString());
-    executeTransactionInstruction.accounts.push({
-      address: accountKey,
-      role: 1, // AccountRole.WRITABLE - simplified for now
-    });
   }
   
-  console.log('✅ Total accounts added to execute instruction:', executeTransactionInstruction.accounts.length);
-  console.log('🔍 Final execute instruction accounts:', executeTransactionInstruction.accounts.map(acc => `${acc.address.toString()} (role: ${acc.role})`));
+  console.log('✅ Execute instruction accounts setup completed');
+  console.log('🔍 Final execute instruction accounts count:', executeTransactionInstruction.accounts.length);
 
   const executeInstructions = [executeTransactionInstruction];
 
