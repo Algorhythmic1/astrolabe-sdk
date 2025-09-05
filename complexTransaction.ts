@@ -91,8 +91,12 @@ export async function createComplexTransaction(
     smartAccountPdaBump: params.smartAccountPdaBump,
     signerAddress: params.signer.address.toString(),
     innerTransactionSize: params.innerTransactionBytes ? params.innerTransactionBytes.length : 'N/A',
+    addressTableLookupsReceived: !!params.addressTableLookups,
+    addressTableLookupsCount: params.addressTableLookups?.length || 0,
     memo: params.memo || 'Complex Smart Account Transaction'
   });
+  
+  console.log('🔍 Raw addressTableLookups in complexTransaction:', JSON.stringify(params.addressTableLookups, null, 2));
 
   console.log('🔧 About to destructure params...');
   
@@ -108,6 +112,9 @@ export async function createComplexTransaction(
   
   const memo = params.memo || 'Complex Smart Account Transaction';
   console.log('✅ Destructuring completed');
+  
+  console.log('🔍 After destructuring - addressTableLookups:', JSON.stringify(addressTableLookups, null, 2));
+  console.log('🔍 After destructuring - addressTableLookups.length:', addressTableLookups?.length);
 
   // Validate that we have transaction bytes
   if (!innerTransactionBytes) {
