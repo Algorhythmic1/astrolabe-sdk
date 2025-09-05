@@ -42,6 +42,8 @@ export interface ComplexTransactionParams {
   signer: TransactionSigner;
   /** Raw transaction bytes (alternative to innerInstructions) - preserves ALT structure */
   innerTransactionBytes?: Uint8Array;
+  /** Address table lookups for ALT support */
+  addressTableLookups?: any[];
   /** Optional memo for the transaction */
   memo?: string;
 }
@@ -101,6 +103,7 @@ export async function createComplexTransaction(
     smartAccountPdaBump,
     signer,
     innerTransactionBytes,
+    addressTableLookups = [],
   } = params;
   
   const memo = params.memo || 'Complex Smart Account Transaction';
@@ -170,14 +173,12 @@ export async function createComplexTransaction(
       accountIndexes: new Uint8Array(ix.accountIndices ?? []),
       data: ix.data ?? new Uint8Array(),
     })),
-    // Handle address table lookups if present (for versioned transactions)
-    addressTableLookups: 'addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups
-      ? decodedMessage.addressTableLookups.map(lookup => ({
-          accountKey: lookup.lookupTableAddress,
-          writableIndexes: new Uint8Array(lookup.writableIndexes ?? []),
-          readonlyIndexes: new Uint8Array(lookup.readonlyIndexes ?? []),
-        }))
-      : [],
+    // Use the passed address table lookups (from Jupiter transaction)
+    addressTableLookups: addressTableLookups.map(lookup => ({
+      accountKey: lookup.accountKey,
+      writableIndexes: new Uint8Array(lookup.writableIndexes ?? []),
+      readonlyIndexes: new Uint8Array(lookup.readonlyIndexes ?? []),
+    })),
   };
 
   console.log('🔧 Encoding smart account transaction message...');
@@ -286,12 +287,12 @@ export async function createComplexTransaction(
   // 2. Message accounts (staticAccounts) SECOND
   
   // Add Address Lookup Table accounts FIRST (required for versioned transactions)
-  if ('addressTableLookups' in decodedMessage && decodedMessage.addressTableLookups) {
+  if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Adding Address Lookup Table accounts FIRST to execute instruction...');
-    for (const lookup of decodedMessage.addressTableLookups) {
-      console.log('📋 Adding ALT account:', lookup.lookupTableAddress.toString());
+    for (const lookup of addressTableLookups) {
+      console.log('📋 Adding ALT account:', lookup.accountKey.toString());
       executeTransactionInstruction.accounts.push({
-        address: lookup.lookupTableAddress,
+        address: lookup.accountKey,
         role: 0, // AccountRole.READONLY - ALT accounts are readonly
       });
     }
