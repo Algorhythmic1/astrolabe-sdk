@@ -444,6 +444,19 @@ export async function createComplexTransaction(
   executeTransactionInstruction.accounts.forEach((account, index) => {
     console.log(`  [${index}] ${account.address} (role: ${account.role})`);
   });
+  
+  // Check for duplicate signer accounts
+  const signerAddresses = executeTransactionInstruction.accounts
+    .filter(account => account.role === 2)
+    .map(account => account.address);
+  
+  console.log('🔍 Signer accounts found:', signerAddresses);
+  const uniqueSigners = new Set(signerAddresses);
+  if (signerAddresses.length !== uniqueSigners.size) {
+    console.error('❌ DUPLICATE SIGNER ACCOUNTS DETECTED!');
+    console.error('Signer addresses:', signerAddresses);
+    console.error('Unique signers:', Array.from(uniqueSigners));
+  }
 
   const executeInstructions = [executeTransactionInstruction];
 
