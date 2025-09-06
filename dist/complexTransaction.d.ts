@@ -13,6 +13,8 @@ export interface ComplexTransactionParams {
     signer: TransactionSigner;
     /** Raw transaction bytes (alternative to innerInstructions) - preserves ALT structure */
     innerTransactionBytes?: Uint8Array;
+    /** Address table lookups for ALT support */
+    addressTableLookups?: any[];
     /** Optional memo for the transaction */
     memo?: string;
 }

@@ -294,7 +294,11 @@ export async function createComplexTransaction(
   // 1. Static accounts + resolved ALT accounts in message_account_infos
   // 2. ALT accounts themselves in address_lookup_table_account_infos
   
+  console.log('🔧🔧🔧 EXECUTE TRANSACTION ACCOUNT SETUP STARTING 🔧🔧🔧');
   console.log('🔧 Smart contract expects manual ALT resolution');
+  console.log('🔍 addressTableLookups exists:', !!addressTableLookups);
+  console.log('🔍 addressTableLookups type:', typeof addressTableLookups);
+  console.log('🔍 addressTableLookups length:', addressTableLookups?.length || 0);
   console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups || [], null, 2));
   console.log('🔍 Static accounts:', decodedMessage.staticAccounts?.length || 0);
   
