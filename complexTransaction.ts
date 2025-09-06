@@ -1,6 +1,7 @@
 import {
   address,
   Address,
+  AccountRole,
   appendTransactionMessageInstructions,
   compileTransaction,
   createTransactionMessage,
@@ -305,25 +306,44 @@ export async function createComplexTransaction(
   if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Processing ALT transaction - manual resolution required');
     
-    // FIRST: Add ALT account(s) themselves (smart contract expects these first)
+    // FIRST: Add smart account accounts (settings, proposal, transaction, signer)
+    console.log('📋 Adding smart account accounts first');
+    executeTransactionInstruction.accounts.push({
+      address: smartAccountPda,
+      role: AccountRole.READONLY, // settings account
+    });
+    executeTransactionInstruction.accounts.push({
+      address: proposalPda,
+      role: AccountRole.WRITABLE, // proposal account (mutable)
+    });
+    executeTransactionInstruction.accounts.push({
+      address: transactionPda,
+      role: AccountRole.READONLY, // transaction account
+    });
+    executeTransactionInstruction.accounts.push({
+      address: signer.address,
+      role: AccountRole.WRITABLE, // signer account (writable to sign)
+    });
+    
+    // SECOND: Add ALT account(s) themselves
     for (const lookup of addressTableLookups) {
-      console.log('📋 Adding ALT account itself FIRST:', lookup.accountKey.toString());
+      console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
       executeTransactionInstruction.accounts.push({
         address: lookup.accountKey,
-        role: 0, // AccountRole.READONLY - ALT accounts are readonly
+        role: AccountRole.READONLY, // ALT accounts are readonly
       });
     }
     
-    // SECOND: Add all static accounts
+    // THIRD: Add all static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
       console.log('📋 Adding static account:', accountKey.toString());
       executeTransactionInstruction.accounts.push({
         address: accountKey,
-        role: 1, // AccountRole.WRITABLE - simplified for now
+        role: AccountRole.WRITABLE, // simplified for now
       });
     }
     
-    // THIRD: Resolve and add ALL ALT accounts in the order they appear in the message
+    // FOURTH: Resolve and add ALL ALT accounts in the order they appear in the message
     for (const lookup of addressTableLookups) {
       console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
       
@@ -378,7 +398,7 @@ export async function createComplexTransaction(
           console.log(`📋 Adding writable ALT account [${writableIndex}] → ${resolvedAddress}`);
           executeTransactionInstruction.accounts.push({
             address: resolvedAddress,
-            role: 1, // AccountRole.WRITABLE
+            role: AccountRole.WRITABLE,
           });
         }
         
@@ -389,7 +409,7 @@ export async function createComplexTransaction(
           console.log(`📋 Adding readonly ALT account [${readonlyIndex}] → ${resolvedAddress}`);
           executeTransactionInstruction.accounts.push({
             address: resolvedAddress,
-            role: 0, // AccountRole.READONLY
+            role: AccountRole.READONLY,
           });
         }
         
@@ -402,13 +422,34 @@ export async function createComplexTransaction(
     }
     
   } else {
-    // No ALTs, add static accounts normally
-    console.log('🔧 No ALTs detected - adding static accounts to execute instruction...');
+    // No ALTs, add smart account accounts and static accounts
+    console.log('🔧 No ALTs detected - adding smart account accounts and static accounts...');
+    
+    // Add smart account accounts first
+    console.log('📋 Adding smart account accounts first');
+    executeTransactionInstruction.accounts.push({
+      address: smartAccountPda,
+      role: AccountRole.READONLY, // settings account
+    });
+    executeTransactionInstruction.accounts.push({
+      address: proposalPda,
+      role: AccountRole.WRITABLE, // proposal account (mutable)
+    });
+    executeTransactionInstruction.accounts.push({
+      address: transactionPda,
+      role: AccountRole.READONLY, // transaction account
+    });
+    executeTransactionInstruction.accounts.push({
+      address: signer.address,
+      role: AccountRole.WRITABLE, // signer account (writable to sign)
+    });
+    
+    // Add static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
       console.log('📋 Adding static account:', accountKey.toString());
       executeTransactionInstruction.accounts.push({
         address: accountKey,
-        role: 1, // AccountRole.WRITABLE - simplified for now
+        role: AccountRole.WRITABLE, // simplified for now
       });
     }
   }
