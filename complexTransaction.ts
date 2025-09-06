@@ -305,7 +305,16 @@ export async function createComplexTransaction(
   if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Processing ALT transaction - manual resolution required');
     
-    // First, add all static accounts
+    // FIRST: Add ALT account(s) themselves (smart contract expects these first)
+    for (const lookup of addressTableLookups) {
+      console.log('📋 Adding ALT account itself FIRST:', lookup.accountKey.toString());
+      executeTransactionInstruction.accounts.push({
+        address: lookup.accountKey,
+        role: 0, // AccountRole.READONLY - ALT accounts are readonly
+      });
+    }
+    
+    // SECOND: Add all static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
       console.log('📋 Adding static account:', accountKey.toString());
       executeTransactionInstruction.accounts.push({
@@ -314,7 +323,7 @@ export async function createComplexTransaction(
       });
     }
     
-    // Then, resolve and add ALL ALT accounts in the order they appear in the message
+    // THIRD: Resolve and add ALL ALT accounts in the order they appear in the message
     for (const lookup of addressTableLookups) {
       console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
       
@@ -390,13 +399,6 @@ export async function createComplexTransaction(
         console.error('❌ ALT resolution failed:', error);
         throw new Error(`Failed to resolve ALT ${lookup.accountKey}: ${error}`);
       }
-      
-      // Add the ALT account itself at the end (this is what the smart contract validates)
-      console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
-      executeTransactionInstruction.accounts.push({
-        address: lookup.accountKey,
-        role: 0, // AccountRole.READONLY - ALT accounts are readonly
-      });
     }
     
   } else {
@@ -413,6 +415,10 @@ export async function createComplexTransaction(
   
   console.log('✅ Execute instruction accounts setup completed');
   console.log('🔍 Final execute instruction accounts count:', executeTransactionInstruction.accounts.length);
+  console.log('🔍 Account order verification:');
+  executeTransactionInstruction.accounts.forEach((account, index) => {
+    console.log(`  [${index}] ${account.address} (role: ${account.role})`);
+  });
 
   const executeInstructions = [executeTransactionInstruction];
 
