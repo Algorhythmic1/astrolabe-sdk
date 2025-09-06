@@ -201,7 +201,7 @@ export async function createComplexTransaction(
   });
 
   // ===== PART 1: PROPOSE + VOTE TRANSACTION =====
-  console.log('🔧 Building Part 1: Propose + Vote Transaction...');
+  console.log('🔧 Building Part 1: Propose Transaction...');
 
   // 5. Create the transaction account instruction
   console.log('🔧 Creating CreateTransaction instruction with transactionMessage of', transactionMessageBytes.length, 'bytes');
