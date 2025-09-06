@@ -306,14 +306,26 @@ export async function createComplexTransaction(
   if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Processing ALT transaction - manual resolution required');
     
-    // FIRST: Add ALT account(s) themselves (smart contract expects these first in remaining_accounts)
+    // FIRST: Prepend ALT account(s) to the beginning of accounts array
+    // (smart contract expects these first in remaining_accounts)
+    const altAccounts = [];
     for (const lookup of addressTableLookups) {
       console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
-      executeTransactionInstruction.accounts.push({
+      altAccounts.push({
         address: lookup.accountKey,
         role: AccountRole.READONLY, // ALT accounts are readonly
       });
     }
+    
+    // Prepend ALT accounts to the beginning of the accounts array
+    const originalAccounts = executeTransactionInstruction.accounts;
+    // Create a new instruction object with ALT accounts first
+    const newInstruction = {
+      ...executeTransactionInstruction,
+      accounts: [...altAccounts, ...originalAccounts]
+    };
+    // Replace the original instruction
+    Object.assign(executeTransactionInstruction, newInstruction);
     
     // SECOND: Add all static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
