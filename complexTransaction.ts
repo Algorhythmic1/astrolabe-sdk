@@ -306,26 +306,7 @@ export async function createComplexTransaction(
   if (addressTableLookups && addressTableLookups.length > 0) {
     console.log('🔧 Processing ALT transaction - manual resolution required');
     
-    // FIRST: Add smart account accounts (settings, proposal, transaction, signer)
-    console.log('📋 Adding smart account accounts first');
-    executeTransactionInstruction.accounts.push({
-      address: smartAccountPda,
-      role: AccountRole.READONLY, // settings account
-    });
-    executeTransactionInstruction.accounts.push({
-      address: proposalPda,
-      role: AccountRole.WRITABLE, // proposal account (mutable)
-    });
-    executeTransactionInstruction.accounts.push({
-      address: transactionPda,
-      role: AccountRole.READONLY, // transaction account
-    });
-    executeTransactionInstruction.accounts.push({
-      address: signer.address,
-      role: AccountRole.WRITABLE, // signer account (writable to sign)
-    });
-    
-    // SECOND: Add ALT account(s) themselves
+    // FIRST: Add ALT account(s) themselves (smart contract expects these first in remaining_accounts)
     for (const lookup of addressTableLookups) {
       console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
       executeTransactionInstruction.accounts.push({
@@ -334,7 +315,7 @@ export async function createComplexTransaction(
       });
     }
     
-    // THIRD: Add all static accounts
+    // SECOND: Add all static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
       console.log('📋 Adding static account:', accountKey.toString());
       executeTransactionInstruction.accounts.push({
@@ -343,7 +324,7 @@ export async function createComplexTransaction(
       });
     }
     
-    // FOURTH: Resolve and add ALL ALT accounts in the order they appear in the message
+    // THIRD: Resolve and add ALL ALT accounts in the order they appear in the message
     for (const lookup of addressTableLookups) {
       console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
       
@@ -422,27 +403,8 @@ export async function createComplexTransaction(
     }
     
   } else {
-    // No ALTs, add smart account accounts and static accounts
-    console.log('🔧 No ALTs detected - adding smart account accounts and static accounts...');
-    
-    // Add smart account accounts first
-    console.log('📋 Adding smart account accounts first');
-    executeTransactionInstruction.accounts.push({
-      address: smartAccountPda,
-      role: AccountRole.READONLY, // settings account
-    });
-    executeTransactionInstruction.accounts.push({
-      address: proposalPda,
-      role: AccountRole.WRITABLE, // proposal account (mutable)
-    });
-    executeTransactionInstruction.accounts.push({
-      address: transactionPda,
-      role: AccountRole.READONLY, // transaction account
-    });
-    executeTransactionInstruction.accounts.push({
-      address: signer.address,
-      role: AccountRole.WRITABLE, // signer account (writable to sign)
-    });
+    // No ALTs, add static accounts only
+    console.log('🔧 No ALTs detected - adding static accounts only...');
     
     // Add static accounts
     for (const accountKey of decodedMessage.staticAccounts) {
