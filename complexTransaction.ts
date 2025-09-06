@@ -317,12 +317,22 @@ export async function createComplexTransaction(
       });
     }
     
-    // Prepend ALT accounts to the beginning of the accounts array
+    // Insert ALT accounts after the explicit parameters (settings, proposal, transaction, signer)
+    // The explicit parameters are at positions 0-3, so ALT accounts should start at position 4
+    const explicitParamsCount = 4; // settings, proposal, transaction, signer
     const originalAccounts = executeTransactionInstruction.accounts;
-    // Create a new instruction object with ALT accounts first
+    
+    // Split the accounts: explicit params + remaining accounts
+    const explicitParams = originalAccounts.slice(0, explicitParamsCount);
+    const remainingAccounts = originalAccounts.slice(explicitParamsCount);
+    
+    // Create new accounts array: explicit params + ALT accounts + remaining accounts
+    const newAccounts = [...explicitParams, ...altAccounts, ...remainingAccounts];
+    
+    // Create a new instruction object with correct account order
     const newInstruction = {
       ...executeTransactionInstruction,
-      accounts: [...altAccounts, ...originalAccounts]
+      accounts: newAccounts
     };
     // Replace the original instruction
     Object.assign(executeTransactionInstruction, newInstruction);
