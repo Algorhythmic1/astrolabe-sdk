@@ -65,6 +65,8 @@ export type ProposeVoteExecuteParams = {
   smartAccountPdaBump: number;
   /** The signer who will create proposal, vote, and execute */
   signer: TransactionSigner;
+  /** The fee payer for the inner transaction (will be replaced by backend) */
+  feePayer: Address;
   /** The inner instructions to execute within the smart account */
   innerInstructions?: any[];
   /** Raw transaction bytes (alternative to innerInstructions) - preserves ALT structure */
@@ -135,6 +137,7 @@ export async function createProposeVoteExecuteTransaction(
   const smartAccountPda = params.smartAccountPda;
   const smartAccountPdaBump = params.smartAccountPdaBump;
   const signer = params.signer;
+  const feePayer = params.feePayer;
   const innerInstructions = params.innerInstructions;
   const innerTransactionBytes = params.innerTransactionBytes;
   const memo = params.memo || 'Smart Account Transaction';
@@ -193,7 +196,7 @@ export async function createProposeVoteExecuteTransaction(
     
     const innerTransactionMessage = pipe(
       createTransactionMessage({ version: 0 }),
-      (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(smartAccountPda), tx),
+      (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx),
       (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhashForInner, tx),
       (tx) => appendTransactionMessageInstructions(innerInstructions || [], tx)
     );
