@@ -310,7 +310,7 @@ export async function createProposeVoteExecuteTransaction(
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
   const finalTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
-    (tx) => setTransactionMessageFeePayerSigner(signer, tx),
+    (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx), // Use feePayer for gasless transactions
     (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     (tx) => appendTransactionMessageInstructions(allInstructions, tx)
   );
