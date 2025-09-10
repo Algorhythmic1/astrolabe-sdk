@@ -20,6 +20,7 @@ import {
   getCreateProposalInstruction,
   getApproveProposalInstruction,
   getExecuteTransactionInstruction,
+  getCloseTransactionInstruction,
 } from './clients/js/src/generated/instructions';
 import { ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS } from './clients/js/src/generated/programs';
 import { getSmartAccountTransactionMessageEncoder } from './clients/js/src/generated/types/smartAccountTransactionMessage';
@@ -249,7 +250,7 @@ export async function createProposeVoteExecuteTransaction(
     settings: smartAccountSettings,
     transaction: transactionPda,
     creator: signer,
-    rentPayer: signer,
+    rentPayer: createNoopSigner(feePayer), // Backend pays for transaction account rent
     systemProgram: address('11111111111111111111111111111111'),
     args: {
       accountIndex: 0, // Use 0 for the primary smart account (matches working example)
@@ -265,7 +266,7 @@ export async function createProposeVoteExecuteTransaction(
     settings: smartAccountSettings,
     proposal: proposalPda,
     creator: signer,
-    rentPayer: signer,
+    rentPayer: createNoopSigner(feePayer), // Backend pays for proposal account rent
     systemProgram: address('11111111111111111111111111111111'),
     transactionIndex: transactionIndex,
     draft: false,
@@ -298,15 +299,26 @@ export async function createProposeVoteExecuteTransaction(
     });
   }
 
-  // 9. Combine all instructions into a single transaction
+  // 9. Create close instruction to reclaim rent back to fee payer
+  const closeTransactionInstruction = getCloseTransactionInstruction({
+    settings: smartAccountSettings,
+    proposal: proposalPda,
+    transaction: transactionPda,
+    proposalRentCollector: feePayer, // Rent goes back to backend fee payer
+    transactionRentCollector: feePayer, // Rent goes back to backend fee payer
+    systemProgram: address('11111111111111111111111111111111'),
+  });
+
+  // 10. Combine all instructions into a single transaction
   const allInstructions = [
     createTransactionInstruction,
     createProposalInstruction,
     approveProposalInstruction,
     executeTransactionInstruction,
+    closeTransactionInstruction, // Close accounts and reclaim rent
   ];
 
-  // 10. Build the final transaction message
+  // 11. Build the final transaction message
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
   const finalTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
@@ -315,7 +327,7 @@ export async function createProposeVoteExecuteTransaction(
     (tx) => appendTransactionMessageInstructions(allInstructions, tx)
   );
 
-  // 11. Compile the transaction to get the buffer
+  // 12. Compile the transaction to get the buffer
   const compiledTransaction = compileTransaction(finalTransactionMessage);
 
   return {
