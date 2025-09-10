@@ -196,7 +196,7 @@ export async function createProposeVoteExecuteTransaction(
     
     const innerTransactionMessage = pipe(
       createTransactionMessage({ version: 0 }),
-      (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx),
+      (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(smartAccountPda), tx), // Inner transaction uses smart account PDA
       (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhashForInner, tx),
       (tx) => appendTransactionMessageInstructions(innerInstructions || [], tx)
     );
