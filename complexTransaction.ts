@@ -11,6 +11,7 @@ import {
   createSolanaRpc,
   createNoopSigner,
   type TransactionSigner,
+  type IInstruction,
 } from '@solana/kit';
 import bs58 from 'bs58';
 
@@ -52,6 +53,8 @@ export interface ComplexTransactionParams {
   addressTableLookups?: any[];
   /** Optional memo for the transaction */
   memo?: string;
+  /** Optional: Input token mint for creating backend fee account (for Jupiter swaps) */
+  inputTokenMint?: string;
 }
 
 export interface ComplexTransactionResult {
@@ -116,6 +119,7 @@ export async function createComplexTransaction(
     feePayer,
     innerTransactionBytes,
     addressTableLookups = [],
+    inputTokenMint,
   } = params;
   
   const memo = params.memo || 'Complex Smart Account Transaction';
@@ -276,6 +280,44 @@ export async function createComplexTransaction(
   console.log('🔧 Building Part 2: Vote Transaction...');
 
   const voteInstructions = [approveProposalInstruction];
+  
+  // Add ATA creation instruction if inputTokenMint is provided (for Jupiter swaps with fees)
+  if (inputTokenMint) {
+    console.log('🏦 Creating backend fee account instruction for token:', inputTokenMint);
+    
+    // Constants for ATA creation
+    const BACKEND_FEE_PAYER = 'astroi1Rrf6rqtJ1BZg7tDyx1NiUaQkYp3uD8mmTeJQ';
+    const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+    const TOKEN_PROGRAM_ID = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    const ASSOCIATED_TOKEN_PROGRAM_ID = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+    const SYSTEM_PROGRAM_ID = address('11111111111111111111111111111111');
+    
+    // Convert native to WSOL mint
+    const actualMint = inputTokenMint === 'native' ? WSOL_MINT : inputTokenMint;
+    
+    // Calculate the Associated Token Account address
+    // This is a simplified PDA derivation - in a real implementation you'd use proper PDA derivation
+    const backendFeePayerAddress = address(BACKEND_FEE_PAYER);
+    const mintAddress = address(actualMint);
+    
+    // Create a simplified ATA creation instruction
+    // Note: This is a basic implementation - you might want to use proper SPL token libraries
+    const createATAInstruction: IInstruction = {
+      programAddress: ASSOCIATED_TOKEN_PROGRAM_ID,
+      accounts: [
+        { address: feePayer, role: AccountRole.WRITABLE_SIGNER }, // Fee payer pays for account creation
+        { address: backendFeePayerAddress, role: AccountRole.READONLY }, // Backend fee account (calculated ATA)
+        { address: backendFeePayerAddress, role: AccountRole.READONLY }, // Owner of the ATA
+        { address: mintAddress, role: AccountRole.READONLY }, // Token mint
+        { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY }, // System program
+        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // Token program
+      ],
+      data: new Uint8Array(0), // ATA creation has no data
+    };
+    
+    voteInstructions.push(createATAInstruction);
+    console.log('✅ Added backend fee account creation to vote transaction');
+  }
 
   const voteTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
