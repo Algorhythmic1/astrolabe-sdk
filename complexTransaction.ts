@@ -279,7 +279,8 @@ export async function createComplexTransaction(
   // ===== PART 2: VOTE TRANSACTION =====
   console.log('🔧 Building Part 2: Vote Transaction...');
 
-  const voteInstructions = [approveProposalInstruction];
+  // Start with the approve proposal instruction
+  const voteInstructions: any[] = [approveProposalInstruction];
   
   // Add ATA creation instruction if inputTokenMint is provided (for Jupiter swaps with fees)
   if (inputTokenMint) {
@@ -315,7 +316,7 @@ export async function createComplexTransaction(
       data: new Uint8Array(0), // ATA creation has no data
     };
     
-    voteInstructions.push(createATAInstruction);
+    voteInstructions.push(createATAInstruction as any);
     console.log('✅ Added backend fee account creation to vote transaction');
   }
 
