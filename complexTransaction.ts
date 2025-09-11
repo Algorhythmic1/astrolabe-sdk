@@ -11,7 +11,6 @@ import {
   createSolanaRpc,
   createNoopSigner,
   type TransactionSigner,
-  type IInstruction,
 } from '@solana/kit';
 import bs58 from 'bs58';
 
@@ -250,22 +249,10 @@ export async function createComplexTransaction(
     args: { memo: null },
   });
 
-  // Add a minimal memo instruction that requires both user and fee payer as signers
-  // This ensures the transaction requires 2 signatures for gasless transactions
-  const memoInstruction: IInstruction = {
-    programAddress: address('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'), // Memo program
-    accounts: [
-      { address: signer.address, role: AccountRole.READONLY_SIGNER }, // User as signer
-      { address: feePayer, role: AccountRole.READONLY_SIGNER }, // Fee payer as signer
-    ],
-    data: new TextEncoder().encode('Gasless transaction'), // Memo text
-  };
-
   // Build Part 1 transaction (propose only - contains the large Jupiter data)
   const proposeInstructions = [
     createTransactionInstruction,
     createProposalInstruction,
-    memoInstruction, // Ensure both signers are required
   ];
 
   const latestBlockhashResponse = await rpc.getLatestBlockhash().send();
@@ -288,7 +275,7 @@ export async function createComplexTransaction(
   // ===== PART 2: VOTE TRANSACTION =====
   console.log('🔧 Building Part 2: Vote Transaction...');
 
-  const voteInstructions = [approveProposalInstruction, memoInstruction];
+  const voteInstructions = [approveProposalInstruction];
 
   const voteTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
@@ -490,7 +477,7 @@ export async function createComplexTransaction(
     console.error('Unique signers:', Array.from(uniqueSigners));
   }
 
-  const executeInstructions = [executeTransactionInstruction, closeTransactionInstruction, memoInstruction];
+  const executeInstructions = [executeTransactionInstruction, closeTransactionInstruction];
 
   const executeTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
