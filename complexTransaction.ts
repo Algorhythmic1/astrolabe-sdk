@@ -55,6 +55,10 @@ export interface ComplexTransactionParams {
   memo?: string;
   /** Optional: Input token mint for creating backend fee account (for Jupiter swaps) */
   inputTokenMint?: string;
+  /** Optional: Input token program ID (SPL Token vs Token-2022) for ATA creation */
+  inputTokenProgram?: string;
+  /** Optional: Pre-derived backend fee account address (ATA) */
+  backendFeeAccount?: string;
 }
 
 export interface ComplexTransactionResult {
@@ -283,41 +287,53 @@ export async function createComplexTransaction(
   const voteInstructions: any[] = [approveProposalInstruction];
   
   // Add ATA creation instruction if inputTokenMint is provided (for Jupiter swaps with fees)
-  if (inputTokenMint) {
-    console.log('🏦 Creating backend fee account instruction for token:', inputTokenMint);
+  if (inputTokenMint && params.inputTokenProgram && params.backendFeeAccount) {
+    console.log('🏦 Creating backend fee account instruction for token:', inputTokenMint, 'at address:', params.backendFeeAccount);
     
     // Constants for ATA creation
     const BACKEND_FEE_PAYER = 'astroi1Rrf6rqtJ1BZg7tDyx1NiUaQkYp3uD8mmTeJQ';
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-    const TOKEN_PROGRAM_ID = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    const SPL_TOKEN_PROGRAM_ID = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    const TOKEN_2022_PROGRAM_ID = address('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
     const ASSOCIATED_TOKEN_PROGRAM_ID = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
     const SYSTEM_PROGRAM_ID = address('11111111111111111111111111111111');
     
     // Convert native to WSOL mint
     const actualMint = inputTokenMint === 'native' ? WSOL_MINT : inputTokenMint;
     
-    // Calculate the Associated Token Account address
-    // This is a simplified PDA derivation - in a real implementation you'd use proper PDA derivation
+    // Determine correct token program
+    let tokenProgram: Address = SPL_TOKEN_PROGRAM_ID;
+    if (params.inputTokenProgram === 'native') {
+      tokenProgram = SPL_TOKEN_PROGRAM_ID;
+    } else if (params.inputTokenProgram === TOKEN_2022_PROGRAM_ID.toString()) {
+      tokenProgram = TOKEN_2022_PROGRAM_ID;
+    } else if (params.inputTokenProgram !== SPL_TOKEN_PROGRAM_ID.toString()) {
+      tokenProgram = address(params.inputTokenProgram);
+    }
+    
+    console.log('🔧 Using token program for ATA creation:', tokenProgram.toString());
+    
+    // Use the pre-derived ATA address from frontend
     const backendFeePayerAddress = address(BACKEND_FEE_PAYER);
     const mintAddress = address(actualMint);
+    const backendFeeAccountAddress = address(params.backendFeeAccount);
     
-    // Create a simplified ATA creation instruction
-    // Note: This is a basic implementation - you might want to use proper SPL token libraries
+    // Create the ATA creation instruction with correct token program and properly derived ATA address
     const createATAInstruction: IInstruction = {
       programAddress: ASSOCIATED_TOKEN_PROGRAM_ID,
       accounts: [
-        { address: feePayer, role: AccountRole.WRITABLE_SIGNER }, // Fee payer pays for account creation
-        { address: backendFeePayerAddress, role: AccountRole.READONLY }, // Backend fee account (calculated ATA)
+        { address: feePayer, role: AccountRole.WRITABLE_SIGNER }, // Payer for account creation
+        { address: backendFeeAccountAddress, role: AccountRole.WRITABLE }, // Properly derived ATA address
         { address: backendFeePayerAddress, role: AccountRole.READONLY }, // Owner of the ATA
         { address: mintAddress, role: AccountRole.READONLY }, // Token mint
         { address: SYSTEM_PROGRAM_ID, role: AccountRole.READONLY }, // System program
-        { address: TOKEN_PROGRAM_ID, role: AccountRole.READONLY }, // Token program
+        { address: tokenProgram, role: AccountRole.READONLY }, // Correct token program (SPL Token or Token-2022)
       ],
-      data: new Uint8Array(0), // ATA creation has no data
+      data: new Uint8Array([1]), // ATA idempotent creation instruction discriminator
     };
     
     voteInstructions.push(createATAInstruction as any);
-    console.log('✅ Added backend fee account creation to vote transaction');
+    console.log('✅ Added backend fee account creation to vote transaction for ATA:', params.backendFeeAccount);
   }
 
   const voteTransactionMessage = pipe(
