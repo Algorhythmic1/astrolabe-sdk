@@ -9,6 +9,7 @@ import {
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   createSolanaRpc,
+  createNoopSigner,
   type TransactionSigner,
 } from '@solana/kit';
 import bs58 from 'bs58';
@@ -21,6 +22,7 @@ import {
   getCreateProposalInstruction,
   getApproveProposalInstruction,
   getExecuteTransactionInstruction,
+  getCloseTransactionInstruction,
 } from './clients/js/src/generated/instructions';
 import { ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS } from './clients/js/src/generated/programs';
 import { getSmartAccountTransactionMessageEncoder } from './clients/js/src/generated/types/smartAccountTransactionMessage';
@@ -42,6 +44,8 @@ export interface ComplexTransactionParams {
   smartAccountPdaBump: number;
   /** Transaction signer (the user) */
   signer: TransactionSigner;
+  /** Fee payer address (backend will replace with actual signer) */
+  feePayer: Address;
   /** Raw transaction bytes (alternative to innerInstructions) - preserves ALT structure */
   innerTransactionBytes?: Uint8Array;
   /** Address table lookups for ALT support */
@@ -108,6 +112,7 @@ export async function createComplexTransaction(
     smartAccountPda,
     smartAccountPdaBump,
     signer,
+    feePayer,
     innerTransactionBytes,
     addressTableLookups = [],
   } = params;
@@ -212,7 +217,7 @@ export async function createComplexTransaction(
     settings: smartAccountSettings,
     transaction: transactionPda,
     creator: signer,
-    rentPayer: signer,
+    rentPayer: createNoopSigner(feePayer), // Backend pays for transaction account rent
     systemProgram: address('11111111111111111111111111111111'),
     args: {
       accountIndex: 0, // Use 0 for the primary smart account
@@ -228,7 +233,7 @@ export async function createComplexTransaction(
     settings: smartAccountSettings,
     proposal: proposalPda,
     creator: signer,
-    rentPayer: signer,
+    rentPayer: createNoopSigner(feePayer), // Backend pays for proposal account rent
     systemProgram: address('11111111111111111111111111111111'),
     transactionIndex: transactionIndex,
     draft: false,
@@ -253,7 +258,7 @@ export async function createComplexTransaction(
   const latestBlockhash = latestBlockhashResponse.value;
   const proposeTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
-    (tx) => setTransactionMessageFeePayerSigner(signer, tx),
+    (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx), // Use feePayer for gasless transactions
     (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     (tx) => appendTransactionMessageInstructions(proposeInstructions, tx)
   );
@@ -270,7 +275,7 @@ export async function createComplexTransaction(
 
   const voteTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
-    (tx) => setTransactionMessageFeePayerSigner(signer, tx),
+    (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx), // Use feePayer for gasless transactions
     (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     (tx) => appendTransactionMessageInstructions(voteInstructions, tx)
   );
@@ -289,6 +294,16 @@ export async function createComplexTransaction(
     proposal: proposalPda,
     transaction: transactionPda,
     signer: signer,
+  });
+
+  // Create close instruction to reclaim rent back to fee payer
+  const closeTransactionInstruction = getCloseTransactionInstruction({
+    settings: smartAccountSettings,
+    proposal: proposalPda,
+    transaction: transactionPda,
+    proposalRentCollector: feePayer, // Rent goes back to backend fee payer
+    transactionRentCollector: feePayer, // Rent goes back to backend fee payer
+    systemProgram: address('11111111111111111111111111111111'),
   });
 
   // The smart contract expects manual ALT resolution - we need to provide:
@@ -458,11 +473,11 @@ export async function createComplexTransaction(
     console.error('Unique signers:', Array.from(uniqueSigners));
   }
 
-  const executeInstructions = [executeTransactionInstruction];
+  const executeInstructions = [executeTransactionInstruction, closeTransactionInstruction];
 
   const executeTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
-    (tx) => setTransactionMessageFeePayerSigner(signer, tx),
+    (tx) => setTransactionMessageFeePayerSigner(createNoopSigner(feePayer), tx), // Use feePayer for gasless transactions
     (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     (tx) => appendTransactionMessageInstructions(executeInstructions, tx)
   );
