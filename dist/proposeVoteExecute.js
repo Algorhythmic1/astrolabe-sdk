@@ -54,6 +54,7 @@ async function createProposeVoteExecuteTransaction(params) {
     const smartAccountPda = params.smartAccountPda;
     const smartAccountPdaBump = params.smartAccountPdaBump;
     const signer = params.signer;
+    const feePayer = params.feePayer;
     const innerInstructions = params.innerInstructions;
     const innerTransactionBytes = params.innerTransactionBytes;
     const memo = params.memo || 'Smart Account Transaction';
@@ -101,7 +102,8 @@ async function createProposeVoteExecuteTransaction(params) {
         // 4. Build and ENCODE the inner transaction message from instructions
         const { value: latestBlockhashForInner } = await rpc.getLatestBlockhash().send();
         console.log('✅ Latest blockhash fetched for inner transaction:', latestBlockhashForInner.blockhash);
-        const innerTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)((0, kit_1.createNoopSigner)(smartAccountPda), tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhashForInner, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(innerInstructions || [], tx));
+        const innerTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)((0, kit_1.createNoopSigner)(smartAccountPda), tx), // Inner transaction uses smart account PDA
+        (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhashForInner, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(innerInstructions || [], tx));
         console.log('🔧 Compiling inner transaction message...');
         compiledInnerMessage = (0, kit_1.compileTransaction)(innerTransactionMessage);
     }
@@ -144,7 +146,7 @@ async function createProposeVoteExecuteTransaction(params) {
         settings: smartAccountSettings,
         transaction: transactionPda,
         creator: signer,
-        rentPayer: signer,
+        rentPayer: (0, kit_1.createNoopSigner)(feePayer), // Backend pays for transaction account rent
         systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
         args: {
             accountIndex: 0, // Use 0 for the primary smart account (matches working example)
@@ -159,7 +161,7 @@ async function createProposeVoteExecuteTransaction(params) {
         settings: smartAccountSettings,
         proposal: proposalPda,
         creator: signer,
-        rentPayer: signer,
+        rentPayer: (0, kit_1.createNoopSigner)(feePayer), // Backend pays for proposal account rent
         systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
         transactionIndex: transactionIndex,
         draft: false,
@@ -188,17 +190,28 @@ async function createProposeVoteExecuteTransaction(params) {
             role: 1, // AccountRole.WRITABLE - simplified for now, would need proper role detection
         });
     }
-    // 9. Combine all instructions into a single transaction
+    // 9. Create close instruction to reclaim rent back to fee payer
+    const closeTransactionInstruction = (0, instructions_1.getCloseTransactionInstruction)({
+        settings: smartAccountSettings,
+        proposal: proposalPda,
+        transaction: transactionPda,
+        proposalRentCollector: feePayer, // Rent goes back to backend fee payer
+        transactionRentCollector: feePayer, // Rent goes back to backend fee payer
+        systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
+    });
+    // 10. Combine all instructions into a single transaction
     const allInstructions = [
         createTransactionInstruction,
         createProposalInstruction,
         approveProposalInstruction,
         executeTransactionInstruction,
+        closeTransactionInstruction, // Close accounts and reclaim rent
     ];
-    // 10. Build the final transaction message
+    // 11. Build the final transaction message
     const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-    const finalTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(allInstructions, tx));
-    // 11. Compile the transaction to get the buffer
+    const finalTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)((0, kit_1.createNoopSigner)(feePayer), tx), // Use feePayer for gasless transactions
+    (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(allInstructions, tx));
+    // 12. Compile the transaction to get the buffer
     const compiledTransaction = (0, kit_1.compileTransaction)(finalTransactionMessage);
     return {
         transactionBuffer: new Uint8Array(compiledTransaction.messageBytes),

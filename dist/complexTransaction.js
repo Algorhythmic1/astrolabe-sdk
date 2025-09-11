@@ -32,6 +32,7 @@ async function createComplexTransaction(params) {
         smartAccountPda: params.smartAccountPda.toString(),
         smartAccountPdaBump: params.smartAccountPdaBump,
         signerAddress: params.signer.address.toString(),
+        feePayerAddress: params.feePayer.toString(),
         innerTransactionSize: params.innerTransactionBytes ? params.innerTransactionBytes.length : 'N/A',
         addressTableLookupsReceived: !!params.addressTableLookups,
         addressTableLookupsCount: params.addressTableLookups?.length || 0,
@@ -39,7 +40,7 @@ async function createComplexTransaction(params) {
     });
     console.log('🔍 Raw addressTableLookups in complexTransaction:', JSON.stringify(params.addressTableLookups, null, 2));
     console.log('🔧 About to destructure params...');
-    const { rpc, smartAccountSettings, smartAccountPda, smartAccountPdaBump, signer, innerTransactionBytes, addressTableLookups = [], } = params;
+    const { rpc, smartAccountSettings, smartAccountPda, smartAccountPdaBump, signer, feePayer, innerTransactionBytes, addressTableLookups = [], inputTokenMint, } = params;
     const memo = params.memo || 'Complex Smart Account Transaction';
     console.log('✅ Destructuring completed');
     console.log('🔍 After destructuring - addressTableLookups:', JSON.stringify(addressTableLookups, null, 2));
@@ -118,7 +119,7 @@ async function createComplexTransaction(params) {
         estimatedProposeSize: transactionMessageBytes.length + 200 // rough estimate
     });
     // ===== PART 1: PROPOSE + VOTE TRANSACTION =====
-    console.log('🔧 Building Part 1: Propose + Vote Transaction...');
+    console.log('🔧 Building Part 1: Propose Transaction...');
     // 5. Create the transaction account instruction
     console.log('🔧 Creating CreateTransaction instruction with transactionMessage of', transactionMessageBytes.length, 'bytes');
     console.log('🔍 transactionMessage first 16 bytes:', Array.from(transactionMessageBytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '));
@@ -126,7 +127,7 @@ async function createComplexTransaction(params) {
         settings: smartAccountSettings,
         transaction: transactionPda,
         creator: signer,
-        rentPayer: signer,
+        rentPayer: (0, kit_1.createNoopSigner)(feePayer), // Backend pays for transaction account rent
         systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
         args: {
             accountIndex: 0, // Use 0 for the primary smart account
@@ -141,7 +142,7 @@ async function createComplexTransaction(params) {
         settings: smartAccountSettings,
         proposal: proposalPda,
         creator: signer,
-        rentPayer: signer,
+        rentPayer: (0, kit_1.createNoopSigner)(feePayer), // Backend pays for proposal account rent
         systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
         transactionIndex: transactionIndex,
         draft: false,
@@ -161,15 +162,52 @@ async function createComplexTransaction(params) {
     ];
     const latestBlockhashResponse = await rpc.getLatestBlockhash().send();
     const latestBlockhash = latestBlockhashResponse.value;
-    const proposeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(proposeInstructions, tx));
+    // Create a real signer for the fee payer to ensure it's counted as a required signer
+    const feePayerSigner = (0, kit_1.createNoopSigner)(feePayer);
+    const proposeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(feePayerSigner, tx), // Use fee payer as real signer for gasless transactions
+    (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(proposeInstructions, tx));
     const compiledProposeTransaction = (0, kit_1.compileTransaction)(proposeTransactionMessage);
     console.log('✅ Part 1 (Propose) transaction compiled:', {
         messageSize: compiledProposeTransaction.messageBytes.length
     });
     // ===== PART 2: VOTE TRANSACTION =====
     console.log('🔧 Building Part 2: Vote Transaction...');
+    // Start with the approve proposal instruction
     const voteInstructions = [approveProposalInstruction];
-    const voteTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(voteInstructions, tx));
+    // Add ATA creation instruction if inputTokenMint is provided (for Jupiter swaps with fees)
+    if (inputTokenMint) {
+        console.log('🏦 Creating backend fee account instruction for token:', inputTokenMint);
+        // Constants for ATA creation
+        const BACKEND_FEE_PAYER = 'astroi1Rrf6rqtJ1BZg7tDyx1NiUaQkYp3uD8mmTeJQ';
+        const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+        const TOKEN_PROGRAM_ID = (0, kit_1.address)('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+        const ASSOCIATED_TOKEN_PROGRAM_ID = (0, kit_1.address)('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+        const SYSTEM_PROGRAM_ID = (0, kit_1.address)('11111111111111111111111111111111');
+        // Convert native to WSOL mint
+        const actualMint = inputTokenMint === 'native' ? WSOL_MINT : inputTokenMint;
+        // Calculate the Associated Token Account address
+        // This is a simplified PDA derivation - in a real implementation you'd use proper PDA derivation
+        const backendFeePayerAddress = (0, kit_1.address)(BACKEND_FEE_PAYER);
+        const mintAddress = (0, kit_1.address)(actualMint);
+        // Create a simplified ATA creation instruction
+        // Note: This is a basic implementation - you might want to use proper SPL token libraries
+        const createATAInstruction = {
+            programAddress: ASSOCIATED_TOKEN_PROGRAM_ID,
+            accounts: [
+                { address: feePayer, role: kit_1.AccountRole.WRITABLE_SIGNER }, // Fee payer pays for account creation
+                { address: backendFeePayerAddress, role: kit_1.AccountRole.READONLY }, // Backend fee account (calculated ATA)
+                { address: backendFeePayerAddress, role: kit_1.AccountRole.READONLY }, // Owner of the ATA
+                { address: mintAddress, role: kit_1.AccountRole.READONLY }, // Token mint
+                { address: SYSTEM_PROGRAM_ID, role: kit_1.AccountRole.READONLY }, // System program
+                { address: TOKEN_PROGRAM_ID, role: kit_1.AccountRole.READONLY }, // Token program
+            ],
+            data: new Uint8Array(0), // ATA creation has no data
+        };
+        voteInstructions.push(createATAInstruction);
+        console.log('✅ Added backend fee account creation to vote transaction');
+    }
+    const voteTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(feePayerSigner, tx), // Use fee payer as real signer for gasless transactions
+    (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(voteInstructions, tx));
     const compiledVoteTransaction = (0, kit_1.compileTransaction)(voteTransactionMessage);
     console.log('✅ Part 2 (Vote) transaction compiled:', {
         messageSize: compiledVoteTransaction.messageBytes.length
@@ -183,6 +221,15 @@ async function createComplexTransaction(params) {
         transaction: transactionPda,
         signer: signer,
     });
+    // Create close instruction to reclaim rent back to fee payer
+    const closeTransactionInstruction = (0, instructions_1.getCloseTransactionInstruction)({
+        settings: smartAccountSettings,
+        proposal: proposalPda,
+        transaction: transactionPda,
+        proposalRentCollector: feePayer, // Rent goes back to backend fee payer
+        transactionRentCollector: feePayer, // Rent goes back to backend fee payer
+        systemProgram: (0, kit_1.address)('11111111111111111111111111111111'),
+    });
     // The smart contract expects manual ALT resolution - we need to provide:
     // 1. Static accounts + resolved ALT accounts in message_account_infos
     // 2. ALT accounts themselves in address_lookup_table_account_infos
@@ -195,15 +242,41 @@ async function createComplexTransaction(params) {
     console.log('🔍 Static accounts:', decodedMessage.staticAccounts?.length || 0);
     if (addressTableLookups && addressTableLookups.length > 0) {
         console.log('🔧 Processing ALT transaction - manual resolution required');
-        // First, add all static accounts
+        // FIRST: Prepend ALT account(s) to the beginning of accounts array
+        // (smart contract expects these first in remaining_accounts)
+        const altAccounts = [];
+        for (const lookup of addressTableLookups) {
+            console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
+            altAccounts.push({
+                address: lookup.accountKey,
+                role: kit_1.AccountRole.READONLY, // ALT accounts are readonly
+            });
+        }
+        // Insert ALT accounts after the explicit parameters (settings, proposal, transaction, signer)
+        // The explicit parameters are at positions 0-3, so ALT accounts should start at position 4
+        const explicitParamsCount = 4; // settings, proposal, transaction, signer
+        const originalAccounts = executeTransactionInstruction.accounts;
+        // Split the accounts: explicit params + remaining accounts
+        const explicitParams = originalAccounts.slice(0, explicitParamsCount);
+        const remainingAccounts = originalAccounts.slice(explicitParamsCount);
+        // Create new accounts array: explicit params + ALT accounts + remaining accounts
+        const newAccounts = [...explicitParams, ...altAccounts, ...remainingAccounts];
+        // Create a new instruction object with correct account order
+        const newInstruction = {
+            ...executeTransactionInstruction,
+            accounts: newAccounts
+        };
+        // Replace the original instruction
+        Object.assign(executeTransactionInstruction, newInstruction);
+        // SECOND: Add all static accounts
         for (const accountKey of decodedMessage.staticAccounts) {
             console.log('📋 Adding static account:', accountKey.toString());
             executeTransactionInstruction.accounts.push({
                 address: accountKey,
-                role: 1, // AccountRole.WRITABLE - simplified for now
+                role: kit_1.AccountRole.WRITABLE, // simplified for now
             });
         }
-        // Then, resolve and add ALL ALT accounts in the order they appear in the message
+        // THIRD: Resolve and add ALL ALT accounts in the order they appear in the message
         for (const lookup of addressTableLookups) {
             console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
             try {
@@ -248,7 +321,7 @@ async function createComplexTransaction(params) {
                     console.log(`📋 Adding writable ALT account [${writableIndex}] → ${resolvedAddress}`);
                     executeTransactionInstruction.accounts.push({
                         address: resolvedAddress,
-                        role: 1, // AccountRole.WRITABLE
+                        role: kit_1.AccountRole.WRITABLE,
                     });
                 }
                 // Add readonly accounts from ALT (in the order they appear in the message) 
@@ -258,7 +331,7 @@ async function createComplexTransaction(params) {
                     console.log(`📋 Adding readonly ALT account [${readonlyIndex}] → ${resolvedAddress}`);
                     executeTransactionInstruction.accounts.push({
                         address: resolvedAddress,
-                        role: 0, // AccountRole.READONLY
+                        role: kit_1.AccountRole.READONLY,
                     });
                 }
                 console.log(`✅ Successfully resolved ${(lookup.writableIndexes || []).length + (lookup.readonlyIndexes || []).length} accounts from ALT`);
@@ -267,29 +340,40 @@ async function createComplexTransaction(params) {
                 console.error('❌ ALT resolution failed:', error);
                 throw new Error(`Failed to resolve ALT ${lookup.accountKey}: ${error}`);
             }
-            // Add the ALT account itself at the end (this is what the smart contract validates)
-            console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
-            executeTransactionInstruction.accounts.push({
-                address: lookup.accountKey,
-                role: 0, // AccountRole.READONLY - ALT accounts are readonly
-            });
         }
     }
     else {
-        // No ALTs, add static accounts normally
-        console.log('🔧 No ALTs detected - adding static accounts to execute instruction...');
+        // No ALTs, add static accounts only
+        console.log('🔧 No ALTs detected - adding static accounts only...');
+        // Add static accounts
         for (const accountKey of decodedMessage.staticAccounts) {
             console.log('📋 Adding static account:', accountKey.toString());
             executeTransactionInstruction.accounts.push({
                 address: accountKey,
-                role: 1, // AccountRole.WRITABLE - simplified for now
+                role: kit_1.AccountRole.WRITABLE, // simplified for now
             });
         }
     }
     console.log('✅ Execute instruction accounts setup completed');
     console.log('🔍 Final execute instruction accounts count:', executeTransactionInstruction.accounts.length);
-    const executeInstructions = [executeTransactionInstruction];
-    const executeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(signer, tx), (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(executeInstructions, tx));
+    console.log('🔍 Account order verification:');
+    executeTransactionInstruction.accounts.forEach((account, index) => {
+        console.log(`  [${index}] ${account.address} (role: ${account.role})`);
+    });
+    // Check for duplicate signer accounts
+    const signerAddresses = executeTransactionInstruction.accounts
+        .filter(account => account.role === 2)
+        .map(account => account.address);
+    console.log('🔍 Signer accounts found:', signerAddresses);
+    const uniqueSigners = new Set(signerAddresses);
+    if (signerAddresses.length !== uniqueSigners.size) {
+        console.error('❌ DUPLICATE SIGNER ACCOUNTS DETECTED!');
+        console.error('Signer addresses:', signerAddresses);
+        console.error('Unique signers:', Array.from(uniqueSigners));
+    }
+    const executeInstructions = [executeTransactionInstruction, closeTransactionInstruction];
+    const executeTransactionMessage = (0, kit_1.pipe)((0, kit_1.createTransactionMessage)({ version: 0 }), (tx) => (0, kit_1.setTransactionMessageFeePayerSigner)(feePayerSigner, tx), // Use fee payer as real signer for gasless transactions
+    (tx) => (0, kit_1.setTransactionMessageLifetimeUsingBlockhash)(latestBlockhash, tx), (tx) => (0, kit_1.appendTransactionMessageInstructions)(executeInstructions, tx));
     const compiledExecuteTransaction = (0, kit_1.compileTransaction)(executeTransactionMessage);
     console.log('✅ Part 3 (Execute) transaction compiled:', {
         messageSize: compiledExecuteTransaction.messageBytes.length

@@ -28,6 +28,8 @@ export type ProposeVoteExecuteParams = {
     smartAccountPdaBump: number;
     /** The signer who will create proposal, vote, and execute */
     signer: TransactionSigner;
+    /** The fee payer for the inner transaction (will be replaced by backend) */
+    feePayer: Address;
     /** The inner instructions to execute within the smart account */
     innerInstructions?: any[];
     /** Raw transaction bytes (alternative to innerInstructions) - preserves ALT structure */
