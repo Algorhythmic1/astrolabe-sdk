@@ -8,6 +8,7 @@ import {
   pipe,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
+  compressTransactionMessageUsingAddressLookupTables,
   createSolanaRpc,
   createNoopSigner,
   type TransactionSigner,
@@ -471,12 +472,37 @@ export async function createComplexTransaction(
 
   const executeInstructions = [executeTransactionInstruction, closeTransactionInstruction];
 
-  const executeTransactionMessage = pipe(
+  let executeTransactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
     (tx) => setTransactionMessageFeePayerSigner(feePayerSigner, tx), // Use fee payer as real signer for gasless transactions
     (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     (tx) => appendTransactionMessageInstructions(executeInstructions, tx)
   );
+
+  // Compress outer v0 message using ALTs so static keys are reduced.
+  if (addressTableLookups && addressTableLookups.length > 0) {
+    // Build a map of lookup table address -> addresses[]
+    const addressesByLookupTableAddress: Record<string, Address[]> = {};
+    for (const lookup of addressTableLookups) {
+      const altInfo = await rpc.getAccountInfo(lookup.accountKey, { encoding: 'base64', commitment: 'finalized' }).send();
+      if (!altInfo.value?.data) continue;
+      const b64 = Array.isArray(altInfo.value.data) ? altInfo.value.data[0] : (altInfo.value.data as string);
+      const data = Buffer.from(b64, 'base64');
+      const HEADER_SIZE = 56;
+      const PUBKEY_SIZE = 32;
+      const total = Math.floor((data.length - HEADER_SIZE) / PUBKEY_SIZE);
+      const addrs: Address[] = [];
+      for (let i = 0; i < total; i++) {
+        const off = HEADER_SIZE + i * PUBKEY_SIZE;
+        addrs.push(address(bs58.encode(data.subarray(off, off + PUBKEY_SIZE))));
+      }
+      addressesByLookupTableAddress[lookup.accountKey.toString()] = addrs;
+    }
+    executeTransactionMessage = compressTransactionMessageUsingAddressLookupTables(
+      executeTransactionMessage as any,
+      addressesByLookupTableAddress as any,
+    ) as any;
+  }
 
   const compiledExecuteTransaction = compileTransaction(executeTransactionMessage);
   console.log('✅ Part 3 (Execute) transaction compiled:', {
