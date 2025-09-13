@@ -118,17 +118,28 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     chunks.push(finalBuffer.subarray(i, Math.min(i + CHUNK, finalBuffer.length)));
   }
 
-  // Derive transaction_buffer PDA: seeds = ["smart_account", settings, "transaction_buffer", creator, buffer_index]
-  const [transactionBufferPda] = await getProgramDerivedAddress({
-    programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
-    seeds: [
-      new Uint8Array(Buffer.from('smart_account')),
-      bs58.decode(smartAccountSettings),
-      new Uint8Array(Buffer.from('transaction_buffer')),
-      bs58.decode(signer.address as string),
-      new Uint8Array([bufferIndex & 0xff]),
-    ],
-  });
+  // Derive a free transaction_buffer PDA by probing indices.
+  async function deriveBufferPda(idx: number) {
+    const [pda] = await getProgramDerivedAddress({
+      programAddress: ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS,
+      seeds: [
+        new Uint8Array(Buffer.from('smart_account')),
+        bs58.decode(smartAccountSettings),
+        new Uint8Array(Buffer.from('transaction_buffer')),
+        bs58.decode(signer.address as string),
+        new Uint8Array([idx & 0xff]),
+      ],
+    });
+    return pda;
+  }
+  let chosenBufferIndex = bufferIndex & 0xff;
+  let transactionBufferPda = await deriveBufferPda(chosenBufferIndex);
+  for (let attempts = 0; attempts < 256; attempts++) {
+    const info = await rpc.getAccountInfo(transactionBufferPda, { commitment: 'processed' as any }).send();
+    if (!info.value) break; // free
+    chosenBufferIndex = (chosenBufferIndex + 1) & 0xff;
+    transactionBufferPda = await deriveBufferPda(chosenBufferIndex);
+  }
 
   // 1) create_transaction_buffer with first slice
   const createBufferIx = getCreateTransactionBufferInstruction({
@@ -137,7 +148,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     creator: signer,
     rentPayer: feePayerSigner,
     systemProgram: address('11111111111111111111111111111111'),
-    bufferIndex,
+    bufferIndex: chosenBufferIndex,
     accountIndex,
     finalBufferHash,
     finalBufferSize,
