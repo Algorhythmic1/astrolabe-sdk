@@ -386,24 +386,23 @@ export async function createComplexTransaction(
   // Build remaining accounts precisely and in-order.
   const explicitParamsCount = 4; // settings, proposal, transaction, signer
   const explicitParams = executeTransactionInstruction.accounts.slice(0, explicitParamsCount);
-  const builtAccounts: { address: Address; role: AccountRole }[] = [];
+  const resultAccounts: { address: Address; role: AccountRole }[] = [];
 
-  // Helper to push unique accounts while preserving first role if already present.
-  const seen = new Set<string>();
-  const pushUnique = (addr: Address, role: AccountRole) => {
-    const key = addr.toString();
-    if (seen.has(key)) return;
-    seen.add(key);
-    builtAccounts.push({ address: addr, role });
-  };
-
-  // Static accounts with proper writability derived from header ordering
+  // Static accounts writability derived from header
   const hdr = decodedMessage.header;
   const total = decodedMessage.staticAccounts.length;
   const numSignersInner = hdr.numSignerAccounts;
   const numWritableSignersInner = numSignersInner - hdr.numReadonlySignerAccounts;
   const numWritableNonSignersInner = total - numSignersInner - hdr.numReadonlyNonSignerAccounts;
 
+  // 1) ALT table accounts first (if any)
+  if (addressTableLookups && addressTableLookups.length > 0) {
+    for (const lookup of addressTableLookups) {
+      resultAccounts.push({ address: lookup.accountKey, role: AccountRole.READONLY });
+    }
+  }
+
+  // 2) Static accounts in order with correct roles
   decodedMessage.staticAccounts.forEach((addrKey: Address, idx: number) => {
     let role = AccountRole.READONLY;
     if (idx < numSignersInner) {
@@ -412,48 +411,42 @@ export async function createComplexTransaction(
       const j = idx - numSignersInner;
       role = j < numWritableNonSignersInner ? AccountRole.WRITABLE : AccountRole.READONLY;
     }
-    pushUnique(addrKey, role);
+    resultAccounts.push({ address: addrKey, role });
   });
 
-  // ALT-resolved accounts in the order: writableIndexes then readonlyIndexes for each table
+  // 3) ALT-resolved: writable indexes then readonly indexes for each table
   if (addressTableLookups && addressTableLookups.length > 0) {
     for (const lookup of addressTableLookups) {
-      try {
-        const altAccountInfo = await rpc.getAccountInfo(lookup.accountKey, {
-          encoding: 'base64',
-          commitment: 'finalized',
-        }).send();
-        if (!altAccountInfo.value?.data) throw new Error('ALT not found');
-        const altDataBase64 = Array.isArray(altAccountInfo.value.data)
-          ? altAccountInfo.value.data[0]
-          : (altAccountInfo.value.data as string);
-        const altData = Buffer.from(altDataBase64, 'base64');
-        const HEADER_SIZE = 56;
-        const PUBKEY_SIZE = 32;
-        const totalAddresses = Math.floor((altData.length - HEADER_SIZE) / PUBKEY_SIZE);
-        const getAddressAtIndex = (index: number): Address => {
-          if (index >= totalAddresses) throw new Error('ALT index OOB');
-          const offset = HEADER_SIZE + index * PUBKEY_SIZE;
-          const pubkeyBytes = altData.subarray(offset, offset + PUBKEY_SIZE);
-          return address(bs58.encode(pubkeyBytes));
-        };
-        for (const writableIndex of (lookup.writableIndexes || [])) {
-          pushUnique(getAddressAtIndex(writableIndex), AccountRole.WRITABLE);
-        }
-        for (const readonlyIndex of (lookup.readonlyIndexes || [])) {
-          pushUnique(getAddressAtIndex(readonlyIndex), AccountRole.READONLY);
-        }
-      } catch (e) {
-        console.error('ALT resolution failed:', e);
-        throw e;
+      const altAccountInfo = await rpc.getAccountInfo(lookup.accountKey, {
+        encoding: 'base64',
+        commitment: 'finalized',
+      }).send();
+      if (!altAccountInfo.value?.data) throw new Error('ALT not found');
+      const altDataBase64 = Array.isArray(altAccountInfo.value.data)
+        ? altAccountInfo.value.data[0]
+        : (altAccountInfo.value.data as string);
+      const altData = Buffer.from(altDataBase64, 'base64');
+      const HEADER_SIZE = 56;
+      const PUBKEY_SIZE = 32;
+      const totalAddresses = Math.floor((altData.length - HEADER_SIZE) / PUBKEY_SIZE);
+      const getAddressAtIndex = (index: number): Address => {
+        if (index >= totalAddresses) throw new Error('ALT index OOB');
+        const offset = HEADER_SIZE + index * PUBKEY_SIZE;
+        const pubkeyBytes = altData.subarray(offset, offset + PUBKEY_SIZE);
+        return address(bs58.encode(pubkeyBytes));
+      };
+      for (const writableIndex of (lookup.writableIndexes || [])) {
+        resultAccounts.push({ address: getAddressAtIndex(writableIndex), role: AccountRole.WRITABLE });
+      }
+      for (const readonlyIndex of (lookup.readonlyIndexes || [])) {
+        resultAccounts.push({ address: getAddressAtIndex(readonlyIndex), role: AccountRole.READONLY });
       }
     }
   }
 
-  // Rebuild execute instruction accounts: explicit params + precise remaining accounts
-  // Replace by mutating through Object.assign to satisfy readonly type wrapper
+  // Rebuild execute instruction accounts: explicit params + precise remaining accounts in expected order
   Object.assign(executeTransactionInstruction, {
-    accounts: [...explicitParams, ...builtAccounts],
+    accounts: [...explicitParams, ...resultAccounts],
   });
   
   console.log('✅ Execute instruction accounts setup completed');
@@ -462,7 +455,7 @@ export async function createComplexTransaction(
   executeTransactionInstruction.accounts.forEach((account, index) => {
     console.log(`  [${index}] ${account.address} (role: ${account.role})`);
   });
-  
+
   // Check for duplicate signer accounts
   const signerAddresses = executeTransactionInstruction.accounts
     .filter(account => account.role === 2)
