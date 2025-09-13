@@ -369,9 +369,11 @@ export async function createComplexTransaction(
     systemProgram: address('11111111111111111111111111111111'),
   });
 
-  // The smart contract expects manual ALT resolution - we need to provide:
-  // 1. Static accounts + resolved ALT accounts in message_account_infos
-  // 2. ALT accounts themselves in address_lookup_table_account_infos
+  // The smart contract expects manual ALT resolution via remaining accounts (message_account_infos).
+  // We must pass:
+  // 1) All static accounts from the inner message in the exact order they appear.
+  // 2) All ALT-resolved writable addresses (in order), then readonly addresses (in order) for each ALT.
+  // We should NOT include the ALT table account itself.
   
   console.log('🔧🔧🔧 EXECUTE TRANSACTION ACCOUNT SETUP STARTING 🔧🔧🔧');
   console.log('🔧 Smart contract expects manual ALT resolution');
@@ -381,140 +383,78 @@ export async function createComplexTransaction(
   console.log('🔍 addressTableLookups:', JSON.stringify(addressTableLookups || [], null, 2));
   console.log('🔍 Static accounts:', decodedMessage.staticAccounts?.length || 0);
   
+  // Build remaining accounts precisely and in-order.
+  const explicitParamsCount = 4; // settings, proposal, transaction, signer
+  const explicitParams = executeTransactionInstruction.accounts.slice(0, explicitParamsCount);
+  const builtAccounts: { address: Address; role: AccountRole }[] = [];
+
+  // Helper to push unique accounts while preserving first role if already present.
+  const seen = new Set<string>();
+  const pushUnique = (addr: Address, role: AccountRole) => {
+    const key = addr.toString();
+    if (seen.has(key)) return;
+    seen.add(key);
+    builtAccounts.push({ address: addr, role });
+  };
+
+  // Static accounts with proper writability derived from header ordering
+  const hdr = decodedMessage.header;
+  const total = decodedMessage.staticAccounts.length;
+  const numSignersInner = hdr.numSignerAccounts;
+  const numWritableSignersInner = numSignersInner - hdr.numReadonlySignerAccounts;
+  const numWritableNonSignersInner = total - numSignersInner - hdr.numReadonlyNonSignerAccounts;
+
+  decodedMessage.staticAccounts.forEach((addrKey: Address, idx: number) => {
+    let role = AccountRole.READONLY;
+    if (idx < numSignersInner) {
+      role = idx < numWritableSignersInner ? AccountRole.WRITABLE : AccountRole.READONLY;
+    } else {
+      const j = idx - numSignersInner;
+      role = j < numWritableNonSignersInner ? AccountRole.WRITABLE : AccountRole.READONLY;
+    }
+    pushUnique(addrKey, role);
+  });
+
+  // ALT-resolved accounts in the order: writableIndexes then readonlyIndexes for each table
   if (addressTableLookups && addressTableLookups.length > 0) {
-    console.log('🔧 Processing ALT transaction - manual resolution required');
-    
-    // FIRST: Prepend ALT account(s) to the beginning of accounts array
-    // (smart contract expects these first in remaining_accounts)
-    const altAccounts = [];
     for (const lookup of addressTableLookups) {
-      console.log('📋 Adding ALT account itself:', lookup.accountKey.toString());
-      altAccounts.push({
-        address: lookup.accountKey,
-        role: AccountRole.READONLY, // ALT accounts are readonly
-      });
-    }
-    
-    // Insert ALT accounts after the explicit parameters (settings, proposal, transaction, signer)
-    // The explicit parameters are at positions 0-3, so ALT accounts should start at position 4
-    const explicitParamsCount = 4; // settings, proposal, transaction, signer
-    const originalAccounts = executeTransactionInstruction.accounts;
-    
-    // Split the accounts: explicit params + remaining accounts
-    const explicitParams = originalAccounts.slice(0, explicitParamsCount);
-    const remainingAccounts = originalAccounts.slice(explicitParamsCount);
-    
-    // Create new accounts array: explicit params + ALT accounts + remaining accounts
-    const newAccounts = [...explicitParams, ...altAccounts, ...remainingAccounts];
-    
-    // Create a new instruction object with correct account order
-    const newInstruction = {
-      ...executeTransactionInstruction,
-      accounts: newAccounts
-    };
-    // Replace the original instruction
-    Object.assign(executeTransactionInstruction, newInstruction);
-    
-    // SECOND: Add all static accounts
-    for (const accountKey of decodedMessage.staticAccounts) {
-      console.log('📋 Adding static account:', accountKey.toString());
-      executeTransactionInstruction.accounts.push({
-        address: accountKey,
-        role: AccountRole.WRITABLE, // simplified for now
-      });
-    }
-    
-    // THIRD: Resolve and add ALL ALT accounts in the order they appear in the message
-    for (const lookup of addressTableLookups) {
-      console.log('🔧 Resolving ALT:', lookup.accountKey.toString());
-      
       try {
-        // Fetch ALT account and parse its addresses using proper encoding
-        const altAccountInfo = await rpc.getAccountInfo(lookup.accountKey, { 
+        const altAccountInfo = await rpc.getAccountInfo(lookup.accountKey, {
           encoding: 'base64',
-          commitment: 'finalized' 
+          commitment: 'finalized',
         }).send();
-        
-        if (!altAccountInfo.value?.data) {
-          throw new Error(`ALT account ${lookup.accountKey} not found`);
-        }
-        
-        // Parse ALT data - it's stored as base64
-        const altDataBase64 = Array.isArray(altAccountInfo.value.data) 
-          ? altAccountInfo.value.data[0] 
-          : altAccountInfo.value.data as string;
+        if (!altAccountInfo.value?.data) throw new Error('ALT not found');
+        const altDataBase64 = Array.isArray(altAccountInfo.value.data)
+          ? altAccountInfo.value.data[0]
+          : (altAccountInfo.value.data as string);
         const altData = Buffer.from(altDataBase64, 'base64');
-        
-        // ALT data structure: 
-        // - 56 bytes header (discriminator + metadata)
-        // - Remaining data: 32-byte public keys 
         const HEADER_SIZE = 56;
         const PUBKEY_SIZE = 32;
-        
-        if (altData.length < HEADER_SIZE) {
-          throw new Error(`Invalid ALT data size: ${altData.length}`);
-        }
-        
         const totalAddresses = Math.floor((altData.length - HEADER_SIZE) / PUBKEY_SIZE);
-        console.log(`🔍 ALT contains ${totalAddresses} addresses`);
-        
-        // Helper function to extract address at specific index
         const getAddressAtIndex = (index: number): Address => {
-          if (index >= totalAddresses) {
-            throw new Error(`Index ${index} out of bounds for ALT with ${totalAddresses} addresses`);
-          }
-          
-          const offset = HEADER_SIZE + (index * PUBKEY_SIZE);
+          if (index >= totalAddresses) throw new Error('ALT index OOB');
+          const offset = HEADER_SIZE + index * PUBKEY_SIZE;
           const pubkeyBytes = altData.subarray(offset, offset + PUBKEY_SIZE);
-          
-          // Convert to base58 string (Solana address format)
-          const addressString = bs58.encode(pubkeyBytes);
-          return address(addressString);
+          return address(bs58.encode(pubkeyBytes));
         };
-        
-        // Add writable accounts from ALT (in the order they appear in the message)
-        console.log(`🔧 Processing ${(lookup.writableIndexes || []).length} writable indexes from ALT`);
-        for (const writableIndex of lookup.writableIndexes || []) {
-          const resolvedAddress = getAddressAtIndex(writableIndex);
-          console.log(`📋 Adding writable ALT account [${writableIndex}] → ${resolvedAddress}`);
-          executeTransactionInstruction.accounts.push({
-            address: resolvedAddress,
-            role: AccountRole.WRITABLE,
-          });
+        for (const writableIndex of (lookup.writableIndexes || [])) {
+          pushUnique(getAddressAtIndex(writableIndex), AccountRole.WRITABLE);
         }
-        
-        // Add readonly accounts from ALT (in the order they appear in the message) 
-        console.log(`🔧 Processing ${(lookup.readonlyIndexes || []).length} readonly indexes from ALT`);
-        for (const readonlyIndex of lookup.readonlyIndexes || []) {
-          const resolvedAddress = getAddressAtIndex(readonlyIndex);
-          console.log(`📋 Adding readonly ALT account [${readonlyIndex}] → ${resolvedAddress}`);
-          executeTransactionInstruction.accounts.push({
-            address: resolvedAddress,
-            role: AccountRole.READONLY,
-          });
+        for (const readonlyIndex of (lookup.readonlyIndexes || [])) {
+          pushUnique(getAddressAtIndex(readonlyIndex), AccountRole.READONLY);
         }
-        
-        console.log(`✅ Successfully resolved ${(lookup.writableIndexes || []).length + (lookup.readonlyIndexes || []).length} accounts from ALT`);
-        
-      } catch (error) {
-        console.error('❌ ALT resolution failed:', error);
-        throw new Error(`Failed to resolve ALT ${lookup.accountKey}: ${error}`);
+      } catch (e) {
+        console.error('ALT resolution failed:', e);
+        throw e;
       }
     }
-    
-  } else {
-    // No ALTs, add static accounts only
-    console.log('🔧 No ALTs detected - adding static accounts only...');
-    
-    // Add static accounts
-    for (const accountKey of decodedMessage.staticAccounts) {
-      console.log('📋 Adding static account:', accountKey.toString());
-      executeTransactionInstruction.accounts.push({
-        address: accountKey,
-        role: AccountRole.WRITABLE, // simplified for now
-      });
-    }
   }
+
+  // Rebuild execute instruction accounts: explicit params + precise remaining accounts
+  // Replace by mutating through Object.assign to satisfy readonly type wrapper
+  Object.assign(executeTransactionInstruction, {
+    accounts: [...explicitParams, ...builtAccounts],
+  });
   
   console.log('✅ Execute instruction accounts setup completed');
   console.log('🔍 Final execute instruction accounts count:', executeTransactionInstruction.accounts.length);
