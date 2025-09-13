@@ -238,14 +238,16 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
       const info = await rpc.getAccountInfo(lookup.accountKey, { encoding: 'base64', commitment: 'finalized' }).send();
       if (!info.value?.data) continue;
       const b64 = Array.isArray(info.value.data) ? info.value.data[0] : (info.value.data as string);
-      const data = Buffer.from(b64, 'base64');
+      const dataBuf = Buffer.from(b64, 'base64');
+      const data = new Uint8Array(dataBuf.buffer, dataBuf.byteOffset, dataBuf.byteLength);
       const HEADER_SIZE = 56;
       const PUBKEY_SIZE = 32;
       const total = Math.floor((data.length - HEADER_SIZE) / PUBKEY_SIZE);
       const addrs: Address[] = [];
       for (let i = 0; i < total; i++) {
         const off = HEADER_SIZE + i * PUBKEY_SIZE;
-        addrs.push(address(bs58.encode(data.subarray(off, off + PUBKEY_SIZE))));
+        const keyBytes = data.subarray(off, off + PUBKEY_SIZE);
+        addrs.push(address(bs58.encode(keyBytes)));
       }
       addressesByLookupTableAddress[lookup.accountKey.toString()] = addrs;
     }
