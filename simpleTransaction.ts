@@ -55,7 +55,7 @@ export { deriveSmartAccountInfo } from './utils/index';
 /**
  * Parameters for the propose-vote-execute workflow
  */
-export type ProposeVoteExecuteParams = {
+export type SimpleTransactionParams = {
   /** The RPC client to use for fetching on-chain data. */
   rpc: SolanaRpc;
   /** The smart account settings address (PDA) */
@@ -79,7 +79,7 @@ export type ProposeVoteExecuteParams = {
 /**
  * Result of the propose-vote-execute workflow
  */
-export type ProposeVoteExecuteResult = {
+export type SimpleTransactionResult = {
   /** The serialized transaction buffer ready to be sent to backend */
   transactionBuffer: Uint8Array;
   /** The transaction PDA that was created */
@@ -98,10 +98,10 @@ export type ProposeVoteExecuteResult = {
  * @param params - The parameters for the workflow
  * @returns Promise resolving to transaction buffer and metadata
  */
-export async function createProposeVoteExecuteTransaction(
-  params: ProposeVoteExecuteParams
-): Promise<ProposeVoteExecuteResult> {
-  console.log('🚀 Starting createProposeVoteExecuteTransaction...');
+export async function createSimpleTransaction(
+  params: SimpleTransactionParams
+): Promise<SimpleTransactionResult> {
+  console.log('🚀 Starting createSimpleTransaction...');
   console.log('🔍 Params type:', typeof params);
   console.log('🔍 Params is null/undefined:', params == null);
   

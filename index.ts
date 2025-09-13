@@ -1,3 +1,4 @@
 export * from './createSmartAccount';
-export * from './proposeVoteExecute';
+export * from './simpleTransaction';
 export * from './complexTransaction';
+export * from './complexBufferedTransaction';
