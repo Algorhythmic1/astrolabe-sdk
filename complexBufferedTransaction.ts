@@ -194,7 +194,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
       accountIndex,
       accountBump: smartAccountPdaBump,
       ephemeralSigners: 0,
-      transactionMessage: new Uint8Array(),
+      transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
       memo,
     },
   });
