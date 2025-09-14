@@ -81,6 +81,10 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   // The smart contract will deserialize as TransactionMessage then convert to SmartAccountTransactionMessage
   const messageBytes = innerTransactionBytes;
 
+  // Log the raw transaction message being stored (for txWireframe.ts analysis)
+  console.log('🔍 Raw Transaction Message for Buffer (base64):');
+  console.log(Buffer.from(messageBytes).toString('base64'));
+
   // Final buffer hash/size
   const finalBuffer = new Uint8Array(messageBytes);
   const finalBufferSize = finalBuffer.length;
@@ -142,6 +146,10 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     tx => appendTransactionMessageInstructions([createBufferIx], tx)
   );
   const createBufferTx = new Uint8Array(compileTransaction(createBufferMessage).messageBytes);
+
+  // Log the buffer creation transaction (for txWireframe.ts analysis)
+  console.log('🔍 Phase 1 - Buffer Creation Transaction (base64):');
+  console.log(Buffer.from(createBufferTx).toString('base64'));
 
   // 2) extend_transaction_buffer for remaining slices
   const extendTxs: Uint8Array[] = [];
@@ -205,6 +213,10 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   );
   const createFromBufferTx = new Uint8Array(compileTransaction(createFromBufferMsg).messageBytes);
 
+  // Log the create from buffer transaction (for txWireframe.ts analysis)
+  console.log('🔍 Phase 2a - Create From Buffer Transaction (base64):');
+  console.log(Buffer.from(createFromBufferTx).toString('base64'));
+
   // 4) execute (reuse existing execute assembly) + close buffer in the same tx
   const executeIx = getExecuteTransactionInstruction({
     settings: smartAccountSettings,
@@ -245,6 +257,10 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     executeMsg = compressTransactionMessageUsingAddressLookupTables(executeMsg as any, addressesByLookupTableAddress as any) as any;
   }
   const executeTx = new Uint8Array(compileTransaction(executeMsg).messageBytes);
+
+  // Log the execute transaction (for txWireframe.ts analysis)
+  console.log('🔍 Phase 2b - Execute Transaction (base64):');
+  console.log(Buffer.from(executeTx).toString('base64'));
 
   return {
     createBufferTx: [createBufferTx, ...extendTxs],
