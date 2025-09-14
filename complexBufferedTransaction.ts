@@ -77,12 +77,31 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Store the raw TransactionMessage (not SmartAccountTransactionMessage)
-  // The smart contract will deserialize as TransactionMessage then convert to SmartAccountTransactionMessage
-  const messageBytes = innerTransactionBytes;
+  // Convert to the custom TransactionMessage format that CreateTransaction expects
+  const decoded = decodeTransactionMessage(innerTransactionBytes);
+  const transactionMessage = {
+    numSigners: decoded.header.numSignerAccounts,
+    numWritableSigners: decoded.header.numSignerAccounts - decoded.header.numReadonlySignerAccounts,
+    numWritableNonSigners: decoded.staticAccounts.length - decoded.header.numSignerAccounts - decoded.header.numReadonlyNonSignerAccounts,
+    accountKeys: decoded.staticAccounts,
+    instructions: decoded.instructions.map(ix => ({
+      programIdIndex: ix.programAddressIndex,
+      accountIndexes: new Uint8Array(ix.accountIndices ?? []),
+      data: ix.data ?? new Uint8Array(),
+    })),
+    addressTableLookups: addressTableLookups.map(l => ({
+      accountKey: l.accountKey,
+      writableIndexes: new Uint8Array(l.writableIndexes ?? []),
+      readonlyIndexes: new Uint8Array(l.readonlyIndexes ?? []),
+    })),
+  };
 
-  // Log the raw transaction message being stored (for txWireframe.ts analysis)
-  console.log('🔍 Raw Transaction Message for Buffer (base64):');
+  // Encode using the generated TransactionMessage encoder from your smart contract
+  const { getTransactionMessageEncoder } = require('./clients/js/src/generated/types/transactionMessage');
+  const messageBytes = getTransactionMessageEncoder().encode(transactionMessage);
+
+  // Log the transaction message being stored (for txWireframe.ts analysis)
+  console.log('🔍 TransactionMessage for Buffer (base64):');
   console.log(Buffer.from(messageBytes).toString('base64'));
 
   // Final buffer hash/size
