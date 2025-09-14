@@ -77,29 +77,9 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Encode inner SmartAccountTransactionMessage
-  const decoded = decodeTransactionMessage(innerTransactionBytes);
-  const numSigners = decoded.header.numSignerAccounts;
-  const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
-  const numWritableSigners = numSigners - numReadonlySigners;
-  const numWritableNonSigners = decoded.staticAccounts.length - numSigners - decoded.header.numReadonlyNonSignerAccounts;
-  const smartAccountMessage = {
-    numSigners,
-    numWritableSigners,
-    numWritableNonSigners,
-    accountKeys: decoded.staticAccounts,
-    instructions: decoded.instructions.map(ix => ({
-      programIdIndex: ix.programAddressIndex,
-      accountIndexes: new Uint8Array(ix.accountIndices ?? []),
-      data: ix.data ?? new Uint8Array(),
-    })),
-    addressTableLookups: addressTableLookups.map(l => ({
-      accountKey: l.accountKey,
-      writableIndexes: new Uint8Array(l.writableIndexes ?? []),
-      readonlyIndexes: new Uint8Array(l.readonlyIndexes ?? []),
-    })),
-  };
-  const messageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
+  // Store the raw TransactionMessage (not SmartAccountTransactionMessage)
+  // The smart contract will deserialize as TransactionMessage then convert to SmartAccountTransactionMessage
+  const messageBytes = innerTransactionBytes;
 
   // Final buffer hash/size
   const finalBuffer = new Uint8Array(messageBytes);
