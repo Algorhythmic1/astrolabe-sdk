@@ -77,7 +77,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Use the same encoding approach as complexTransaction.ts
+  // Store exactly the same format as complexTransaction.ts
   const decoded = decodeTransactionMessage(innerTransactionBytes);
   const numSigners = decoded.header.numSignerAccounts;
   const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
@@ -101,11 +101,11 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     })),
   };
 
-  // Encode as SmartAccountTransactionMessage (same as complexTransaction.ts)
+  // Use the exact same encoder as complexTransaction.ts
   const messageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
 
   // Log the transaction message being stored (for txWireframe.ts analysis)
-  console.log('🔍 SmartAccountTransactionMessage for Buffer (base64):');
+  console.log('🔍 SmartAccountTransactionMessage for Buffer (same as complexTransaction):');
   console.log(Buffer.from(messageBytes).toString('base64'));
 
   // Final buffer hash/size
