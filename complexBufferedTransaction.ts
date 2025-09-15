@@ -77,35 +77,104 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Store exactly the same format as complexTransaction.ts
+  // Manual Anchor serialization of TransactionMessage struct for buffer storage
   const decoded = decodeTransactionMessage(innerTransactionBytes);
-  const numSigners = decoded.header.numSignerAccounts;
-  const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
-  const numWritableSigners = numSigners - numReadonlySigners;
-  const numWritableNonSigners = decoded.staticAccounts.length - numSigners - decoded.header.numReadonlyNonSignerAccounts;
   
-  const smartAccountMessage = {
-    numSigners,
-    numWritableSigners,
-    numWritableNonSigners,
-    accountKeys: decoded.staticAccounts,
-    instructions: decoded.instructions.map(ix => ({
-      programIdIndex: ix.programAddressIndex,
-      accountIndexes: new Uint8Array(ix.accountIndices ?? []),
-      data: ix.data ?? new Uint8Array(),
-    })),
-    addressTableLookups: addressTableLookups.map(l => ({
-      accountKey: l.accountKey,
-      writableIndexes: new Uint8Array(l.writableIndexes ?? []),
-      readonlyIndexes: new Uint8Array(l.readonlyIndexes ?? []),
-    })),
-  };
+  function encodeTransactionMessageForBuffer(decoded: any, addressTableLookups: any[]): Uint8Array {
+    const writer = new ArrayBuffer(8192); // Start with large buffer
+    const view = new DataView(writer);
+    let offset = 0;
+    
+    // Field 1: num_signers (u8)
+    view.setUint8(offset, decoded.header.numSignerAccounts);
+    offset += 1;
+    
+    // Field 2: num_writable_signers (u8)
+    view.setUint8(offset, decoded.header.numSignerAccounts - decoded.header.numReadonlySignerAccounts);
+    offset += 1;
+    
+    // Field 3: num_writable_non_signers (u8)
+    view.setUint8(offset, decoded.staticAccounts.length - decoded.header.numSignerAccounts - decoded.header.numReadonlyNonSignerAccounts);
+    offset += 1;
+    
+    // Field 4: account_keys (Vec<Pubkey>) - length (u32 LE) + data
+    view.setUint32(offset, decoded.staticAccounts.length, true);
+    offset += 4;
+    
+    const result = new Uint8Array(offset + (decoded.staticAccounts.length * 32) + 1000); // Estimate size
+    result.set(new Uint8Array(writer, 0, offset));
+    
+    for (const account of decoded.staticAccounts) {
+      const accountBytes = typeof account === 'string' ? bs58.decode(account) : account;
+      result.set(accountBytes, offset);
+      offset += 32;
+    }
+    
+    // Field 5: instructions (Vec<CompiledInstruction>) - length + data
+    const instructionsView = new DataView(result.buffer);
+    instructionsView.setUint32(offset, decoded.instructions.length, true);
+    offset += 4;
+    
+    for (const ix of decoded.instructions) {
+      // program_id_index (u8)
+      result[offset] = ix.programAddressIndex;
+      offset += 1;
+      
+      // account_indexes (Vec<u8>) - length + data
+      const accountIndicesLen = ix.accountIndices?.length || 0;
+      instructionsView.setUint32(offset, accountIndicesLen, true);
+      offset += 4;
+      if (ix.accountIndices) {
+        result.set(ix.accountIndices, offset);
+        offset += accountIndicesLen;
+      }
+      
+      // data (Vec<u8>) - length + data
+      const dataLen = ix.data?.length || 0;
+      instructionsView.setUint32(offset, dataLen, true);
+      offset += 4;
+      if (ix.data) {
+        result.set(ix.data, offset);
+        offset += dataLen;
+      }
+    }
+    
+    // Field 6: address_table_lookups (Vec<MessageAddressTableLookup>) - length + data
+    instructionsView.setUint32(offset, addressTableLookups.length, true);
+    offset += 4;
+    
+    for (const lookup of addressTableLookups) {
+      // account_key (Pubkey) - 32 bytes
+      const lookupKeyBytes = typeof lookup.accountKey === 'string' ? bs58.decode(lookup.accountKey) : lookup.accountKey;
+      result.set(lookupKeyBytes, offset);
+      offset += 32;
+      
+      // writable_indexes (Vec<u8>) - length + data
+      const writableLen = lookup.writableIndexes?.length || 0;
+      instructionsView.setUint32(offset, writableLen, true);
+      offset += 4;
+      if (lookup.writableIndexes) {
+        result.set(lookup.writableIndexes, offset);
+        offset += writableLen;
+      }
+      
+      // readonly_indexes (Vec<u8>) - length + data
+      const readonlyLen = lookup.readonlyIndexes?.length || 0;
+      instructionsView.setUint32(offset, readonlyLen, true);
+      offset += 4;
+      if (lookup.readonlyIndexes) {
+        result.set(lookup.readonlyIndexes, offset);
+        offset += readonlyLen;
+      }
+    }
+    
+    return result.slice(0, offset);
+  }
 
-  // Use the exact same encoder as complexTransaction.ts
-  const messageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
+  const messageBytes = encodeTransactionMessageForBuffer(decoded, addressTableLookups);
 
   // Log the transaction message being stored (for txWireframe.ts analysis)
-  console.log('🔍 SmartAccountTransactionMessage for Buffer (same as complexTransaction):');
+  console.log('🔍 Manual TransactionMessage for Buffer:');
   console.log(Buffer.from(messageBytes).toString('base64'));
 
   // Final buffer hash/size
