@@ -77,12 +77,17 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Convert to the custom TransactionMessage format that CreateTransaction expects
+  // Use the same encoding approach as complexTransaction.ts
   const decoded = decodeTransactionMessage(innerTransactionBytes);
-  const transactionMessage = {
-    numSigners: decoded.header.numSignerAccounts,
-    numWritableSigners: decoded.header.numSignerAccounts - decoded.header.numReadonlySignerAccounts,
-    numWritableNonSigners: decoded.staticAccounts.length - decoded.header.numSignerAccounts - decoded.header.numReadonlyNonSignerAccounts,
+  const numSigners = decoded.header.numSignerAccounts;
+  const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
+  const numWritableSigners = numSigners - numReadonlySigners;
+  const numWritableNonSigners = decoded.staticAccounts.length - numSigners - decoded.header.numReadonlyNonSignerAccounts;
+  
+  const smartAccountMessage = {
+    numSigners,
+    numWritableSigners,
+    numWritableNonSigners,
     accountKeys: decoded.staticAccounts,
     instructions: decoded.instructions.map(ix => ({
       programIdIndex: ix.programAddressIndex,
@@ -96,12 +101,11 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     })),
   };
 
-  // Encode using the generated TransactionMessage encoder from your smart contract
-  const { getTransactionMessageEncoder } = require('./clients/js/src/generated/types/transactionMessage');
-  const messageBytes = getTransactionMessageEncoder().encode(transactionMessage);
+  // Encode as SmartAccountTransactionMessage (same as complexTransaction.ts)
+  const messageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
 
   // Log the transaction message being stored (for txWireframe.ts analysis)
-  console.log('🔍 TransactionMessage for Buffer (base64):');
+  console.log('🔍 SmartAccountTransactionMessage for Buffer (base64):');
   console.log(Buffer.from(messageBytes).toString('base64'));
 
   // Final buffer hash/size
