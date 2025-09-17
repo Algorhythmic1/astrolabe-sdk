@@ -102,6 +102,7 @@ export async function createSmartAccountTransaction(
       new Uint8Array(Buffer.from('program_config')),
     ],
   });
+  console.log('programConfigPda', programConfigPda);
   const programConfig = await fetchProgramConfig(rpc, programConfigPda);
   const { treasury, smartAccountIndex } = programConfig.data;
 

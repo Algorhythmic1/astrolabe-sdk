@@ -11,7 +11,7 @@ exports.AstrolabeSmartAccountInstruction = exports.AstrolabeSmartAccountAccount 
 exports.identifyAstrolabeSmartAccountAccount = identifyAstrolabeSmartAccountAccount;
 exports.identifyAstrolabeSmartAccountInstruction = identifyAstrolabeSmartAccountInstruction;
 const kit_1 = require("@solana/kit");
-exports.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS = 'D7ArmwT3y5vrMYuRhnAKvv9Qqbk9VtbfRY1ShLhLoW6W';
+exports.ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS = 'AjCqKrttjVkXEyeeq9GrYJJVJ4K256LsUV1rQiDEGK2y';
 var AstrolabeSmartAccountAccount;
 (function (AstrolabeSmartAccountAccount) {
     AstrolabeSmartAccountAccount[AstrolabeSmartAccountAccount["Batch"] = 0] = "Batch";
