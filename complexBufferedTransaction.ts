@@ -22,6 +22,7 @@ import {
   getCreateTransactionBufferInstruction,
   getExtendTransactionBufferInstruction,
   getCreateTransactionFromBufferInstruction,
+  getCreateTransactionFromBufferInstructionDataDecoder,
   getCreateProposalInstruction,
   getApproveProposalInstruction,
   getExecuteTransactionInstruction,
@@ -202,6 +203,31 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   }
 
   // 3) create_transaction_from_buffer + create_proposal + approve
+  
+  // Validate u8 values to prevent BorshIoError
+  if (typeof accountIndex !== 'number' || accountIndex < 0 || accountIndex > 255) {
+    throw new Error(`Invalid accountIndex: ${accountIndex} (must be u8)`);
+  }
+  if (typeof smartAccountPdaBump !== 'number' || smartAccountPdaBump < 0 || smartAccountPdaBump > 255) {
+    throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be u8)`);
+  }
+  
+  const createFromBufferArgs = {
+    accountIndex: accountIndex & 0xFF, // Ensure u8
+    accountBump: smartAccountPdaBump & 0xFF, // Ensure u8  
+    ephemeralSigners: 0,
+    transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
+    memo: memo || null, // Ensure it's explicitly null instead of undefined
+  };
+  
+  // Debug the instruction arguments
+  console.log('🔍 CreateTransactionFromBuffer args:', createFromBufferArgs);
+  console.log('🔍 accountIndex:', createFromBufferArgs.accountIndex, 'type:', typeof createFromBufferArgs.accountIndex);
+  console.log('🔍 accountBump:', createFromBufferArgs.accountBump, 'type:', typeof createFromBufferArgs.accountBump);
+  console.log('🔍 ephemeralSigners:', createFromBufferArgs.ephemeralSigners, 'type:', typeof createFromBufferArgs.ephemeralSigners);
+  console.log('🔍 transactionMessage:', Array.from(createFromBufferArgs.transactionMessage));
+  console.log('🔍 memo:', createFromBufferArgs.memo);
+  
   const createFromBufferIx = getCreateTransactionFromBufferInstruction({
     settings: smartAccountSettings,
     transaction: transactionPda,
@@ -210,14 +236,21 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     systemProgram: address('11111111111111111111111111111111'),
     transactionBuffer: transactionBufferPda,
     creator: signer,
-    args: {
-      accountIndex,
-      accountBump: smartAccountPdaBump,
-      ephemeralSigners: 0,
-      transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
-      memo,
-    },
+    args: createFromBufferArgs,
   });
+  
+  // Debug the instruction data
+  console.log('🔍 CreateTransactionFromBuffer instruction data length:', createFromBufferIx.data.length);
+  console.log('🔍 CreateTransactionFromBuffer instruction data first 32 bytes:', Array.from(createFromBufferIx.data.slice(0, 32)));
+  console.log('🔍 CreateTransactionFromBuffer instruction data as hex:', Buffer.from(createFromBufferIx.data).toString('hex'));
+  
+  // Test if we can decode our own instruction data
+  try {
+    const decoded = getCreateTransactionFromBufferInstructionDataDecoder().decode(createFromBufferIx.data);
+    console.log('✅ SDK can decode instruction data:', decoded);
+  } catch (err) {
+    console.error('❌ SDK cannot decode its own instruction data:', err);
+  }
 
   const createProposalIx = getCreateProposalInstruction({
     settings: smartAccountSettings,
