@@ -216,23 +216,16 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be valid PDA bump 0-255, got ${smartAccountPdaBump})`);
   }
   
-  const createFromBufferArgs = {
-    accountIndex: accountIndex & 0xFF, // Ensure u8
-    accountBump: smartAccountPdaBump & 0xFF, // Ensure u8  
+  // Debug the instruction arguments before encoding
+  console.log('🔍 CreateTransactionFromBuffer args will be:', {
+    accountIndex: accountIndex & 0xFF,
+    accountBump: smartAccountPdaBump & 0xFF,
     ephemeralSigners: 0,
-    transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
-    memo: memo || null, // Ensure it's explicitly null instead of undefined
-  };
+    transactionMessage: Array.from(new Uint8Array([0, 0, 0, 0, 0, 0])),
+    memo: memo || null,
+  });
   
-  // Debug the instruction arguments
-  console.log('🔍 CreateTransactionFromBuffer args:', createFromBufferArgs);
-  console.log('🔍 accountIndex:', createFromBufferArgs.accountIndex, 'type:', typeof createFromBufferArgs.accountIndex);
-  console.log('🔍 accountBump:', createFromBufferArgs.accountBump, 'type:', typeof createFromBufferArgs.accountBump);
-  console.log('🚨 INVALID BUMP: smartAccountPdaBump=', smartAccountPdaBump, '(should be ≤ 254, got', createFromBufferArgs.accountBump, ')');
-  console.log('🔍 ephemeralSigners:', createFromBufferArgs.ephemeralSigners, 'type:', typeof createFromBufferArgs.ephemeralSigners);
-  console.log('🔍 transactionMessage:', Array.from(createFromBufferArgs.transactionMessage));
-  console.log('🔍 memo:', createFromBufferArgs.memo);
-  
+  // Use the generated instruction function with exact same args structure as working transactions
   const createFromBufferIx = getCreateTransactionFromBufferInstruction({
     settings: smartAccountSettings,
     transaction: transactionPda,
@@ -241,7 +234,13 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     systemProgram: address('11111111111111111111111111111111'),
     transactionBuffer: transactionBufferPda,
     creator: signer,
-    args: createFromBufferArgs,
+    args: {
+      accountIndex: accountIndex & 0xFF,
+      accountBump: smartAccountPdaBump & 0xFF,
+      ephemeralSigners: 0,
+      transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
+      memo: memo || null,
+    },
   });
   
   // Debug the instruction data
