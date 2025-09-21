@@ -208,8 +208,8 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   if (typeof accountIndex !== 'number' || accountIndex < 0 || accountIndex > 255) {
     throw new Error(`Invalid accountIndex: ${accountIndex} (must be u8)`);
   }
-  if (typeof smartAccountPdaBump !== 'number' || smartAccountPdaBump < 0 || smartAccountPdaBump > 255) {
-    throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be u8)`);
+  if (typeof smartAccountPdaBump !== 'number' || smartAccountPdaBump < 0 || smartAccountPdaBump > 254) {
+    throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be valid PDA bump ≤ 254, got ${smartAccountPdaBump})`);
   }
   
   const createFromBufferArgs = {
@@ -224,6 +224,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   console.log('🔍 CreateTransactionFromBuffer args:', createFromBufferArgs);
   console.log('🔍 accountIndex:', createFromBufferArgs.accountIndex, 'type:', typeof createFromBufferArgs.accountIndex);
   console.log('🔍 accountBump:', createFromBufferArgs.accountBump, 'type:', typeof createFromBufferArgs.accountBump);
+  console.log('🚨 INVALID BUMP: smartAccountPdaBump=', smartAccountPdaBump, '(should be ≤ 254, got', createFromBufferArgs.accountBump, ')');
   console.log('🔍 ephemeralSigners:', createFromBufferArgs.ephemeralSigners, 'type:', typeof createFromBufferArgs.ephemeralSigners);
   console.log('🔍 transactionMessage:', Array.from(createFromBufferArgs.transactionMessage));
   console.log('🔍 memo:', createFromBufferArgs.memo);
