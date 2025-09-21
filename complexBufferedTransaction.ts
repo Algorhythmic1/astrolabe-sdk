@@ -204,12 +204,16 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
 
   // 3) create_transaction_from_buffer + create_proposal + approve
   
+  // Debug parameters BEFORE validation
+  console.log('🚨 DEBUG: smartAccountPdaBump parameter value:', smartAccountPdaBump, 'type:', typeof smartAccountPdaBump);
+  console.log('🚨 DEBUG: accountIndex parameter value:', accountIndex, 'type:', typeof accountIndex);
+  
   // Validate u8 values to prevent BorshIoError
   if (typeof accountIndex !== 'number' || accountIndex < 0 || accountIndex > 255) {
     throw new Error(`Invalid accountIndex: ${accountIndex} (must be u8)`);
   }
-  if (typeof smartAccountPdaBump !== 'number' || smartAccountPdaBump < 0 || smartAccountPdaBump > 254) {
-    throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be valid PDA bump ≤ 254, got ${smartAccountPdaBump})`);
+  if (typeof smartAccountPdaBump !== 'number' || smartAccountPdaBump < 0 || smartAccountPdaBump > 255) {
+    throw new Error(`Invalid smartAccountPdaBump: ${smartAccountPdaBump} (must be valid PDA bump 0-255, got ${smartAccountPdaBump})`);
   }
   
   const createFromBufferArgs = {
