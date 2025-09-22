@@ -15,6 +15,16 @@ import {
   type TransactionSigner,
 } from '@solana/kit';
 import bs58 from 'bs58';
+import { 
+  getStructEncoder,
+  getU8Encoder,
+  getArrayEncoder,
+  getBytesEncoder,
+  getAddressEncoder,
+  fixEncoderSize,
+  getU32Encoder,
+  addEncoderSizePrefix
+} from '@solana/kit';
 
 type SolanaRpc = ReturnType<typeof createSolanaRpc>;
 
@@ -23,12 +33,13 @@ import {
   getExtendTransactionBufferInstruction,
   getCreateTransactionFromBufferInstruction,
   getCreateTransactionFromBufferInstructionDataDecoder,
+  getCreateTransactionFromBufferInstructionDataEncoder,
   getCreateProposalInstruction,
   getApproveProposalInstruction,
   getExecuteTransactionInstruction,
   getCloseTransactionBufferInstruction,
 } from './clients/js/src/generated/instructions';
-import { getSmartAccountTransactionMessageEncoder } from './clients/js/src/generated/types/smartAccountTransactionMessage';
+import { getSmartAccountTransactionMessageEncoder, getSmartAccountTransactionMessageDecoder } from './clients/js/src/generated/types/smartAccountTransactionMessage';
 import { fetchSettings } from './clients/js/src/generated/accounts/settings';
 import { deriveTransactionPda, deriveProposalPda, decodeTransactionMessage } from './utils/index';
 import { ASTROLABE_SMART_ACCOUNT_PROGRAM_ADDRESS } from './clients/js/src/generated/programs';
@@ -78,12 +89,97 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // CRITICAL FIX: Store raw Jupiter transaction bytes in buffer
-  // The Solana program expects standard TransactionMessage format, not custom SmartAccount format
-  console.log('🔧 Storing raw Jupiter transaction bytes in buffer (standard format)');
+  // CRITICAL FIX: Convert Jupiter's standard format to SmartAccount format with ALT support
+  // The program expects custom TransactionMessage format that includes address_table_lookups
+  console.log('🔧 Converting Jupiter transaction to SmartAccount format with ALT support');
   console.log('🔍 Raw Jupiter transaction length:', innerTransactionBytes.length);
+  console.log('🔍 ALT count:', addressTableLookups.length);
   
-  const messageBytes = innerTransactionBytes; // Use Jupiter's raw transaction bytes directly
+  // Decode the standard transaction message from Jupiter
+  const decoded = decodeTransactionMessage(innerTransactionBytes);
+  
+  // Convert from Solana's standard format to SmartAccount format
+  const numSigners = decoded.header.numSignerAccounts;
+  const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
+  const numWritableSigners = numSigners - numReadonlySigners;
+  const numWritableNonSigners = decoded.staticAccounts.length - numSigners - decoded.header.numReadonlyNonSignerAccounts;
+  
+  // Convert instructions from standard format to SmartAccount format
+  const smartAccountInstructions = decoded.instructions.map(ix => ({
+    programIdIndex: ix.programAddressIndex, // Convert field name
+    accountIndexes: new Uint8Array(ix.accountIndices || []), // Convert field name  
+    data: new Uint8Array(ix.data || [])
+  }));
+  
+  // Convert address table lookups to SmartAccount format (keep ALTs!)
+  const smartAccountLookups = addressTableLookups.map(lookup => ({
+    accountKey: typeof lookup.accountKey === 'string' ? address(lookup.accountKey) : lookup.accountKey,
+    writableIndexes: new Uint8Array(lookup.writableIndexes || []),
+    readonlyIndexes: new Uint8Array(lookup.readonlyIndexes || [])
+  }));
+  
+  // Create the SmartAccount format message WITH ALT support
+  const smartAccountMessage = {
+    numSigners,
+    numWritableSigners,
+    numWritableNonSigners,
+    accountKeys: decoded.staticAccounts.map(addr => typeof addr === 'string' ? address(addr) : addr),
+    instructions: smartAccountInstructions,
+    addressTableLookups: smartAccountLookups // ALTs preserved!
+  };
+  
+  // Use the generated encoder to properly serialize in SmartAccount format
+  const jsSdkMessageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
+  
+  // 🚨 CRITICAL DEBUG: Test if we can decode our own encoded message
+  try {
+    const decoder = getSmartAccountTransactionMessageDecoder();
+    const testDecoded = decoder.decode(jsSdkMessageBytes);
+    console.log('✅ SELF-DECODE TEST PASSED - Our encoding is valid!');
+    console.log('🔍 Decoded back:', {
+      numSigners: testDecoded.numSigners,
+      numWritableSigners: testDecoded.numWritableSigners,
+      numWritableNonSigners: testDecoded.numWritableNonSigners,
+      accountKeysCount: testDecoded.accountKeys.length,
+      instructionsCount: testDecoded.instructions.length,
+      altLookupsCount: testDecoded.addressTableLookups.length
+    });
+  } catch (err) {
+    console.error('❌ SELF-DECODE TEST FAILED - Our encoding is BROKEN!', err);
+    throw err;
+  }
+  
+  // Let's debug the ACTUAL difference between JS SDK bytes and Jupiter bytes
+  console.log('🔍 Analyzing transaction message formats:');
+  console.log('📊 JS SDK message bytes (first 100):', Array.from(jsSdkMessageBytes.slice(0, 100)));
+  console.log('📊 Raw Jupiter bytes (first 100):', Array.from(innerTransactionBytes.slice(0, 100)));
+  
+  // Let's also check what the create_transaction instruction expects
+  console.log('🔍 SmartAccount message structure:');
+  console.log('  numSigners:', smartAccountMessage.numSigners);
+  console.log('  numWritableSigners:', smartAccountMessage.numWritableSigners);
+  console.log('  numWritableNonSigners:', smartAccountMessage.numWritableNonSigners);
+  console.log('  accountKeys length:', smartAccountMessage.accountKeys.length);
+  console.log('  instructions length:', smartAccountMessage.instructions.length);
+  console.log('  addressTableLookups length:', smartAccountMessage.addressTableLookups.length);
+  
+  if (smartAccountMessage.instructions.length > 0) {
+    console.log('  first instruction:', {
+      programIdIndex: smartAccountMessage.instructions[0].programIdIndex,
+      accountIndexes: smartAccountMessage.instructions[0].accountIndexes.length,
+      data: smartAccountMessage.instructions[0].data.length
+    });
+  }
+  
+  // Use the JS SDK generated encoder - it should work!
+  const messageBytes = jsSdkMessageBytes;
+  
+  console.log('✅ SmartAccount transaction with ALTs created:', {
+    staticAccounts: decoded.staticAccounts.length,
+    altLookups: smartAccountLookups.length,
+    messageSize: messageBytes.length,
+    preservedCompression: true
+  });
 
   // Log the transaction message being stored (for txWireframe.ts analysis)
   console.log('🔍 Manual TransactionMessage for Buffer:');
@@ -259,6 +355,40 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     console.error('  accountIndex:', accountIndex, '(type:', typeof accountIndex, ')');
     console.error('  smartAccountPdaBump:', smartAccountPdaBump, '(type:', typeof smartAccountPdaBump, ')');
     console.error('  memo:', memo, '(type:', typeof memo, ')');
+    
+    // Let's test manual encoding to isolate the issue
+    console.log('🧪 Testing manual encoding of instruction data...');
+    try {
+      const testArgsData = {
+        args: {
+          accountIndex: accountIndex & 0xFF,
+          accountBump: smartAccountPdaBump & 0xFF,
+          ephemeralSigners: 0,
+          transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
+          memo: memo || null,
+        }
+      };
+      
+      const encoder = getCreateTransactionFromBufferInstructionDataEncoder();
+      const manualBytes = encoder.encode(testArgsData);
+      console.log('✅ Manual encoding succeeded, length:', manualBytes.length);
+      console.log('🔍 Manual bytes (first 50):', Array.from(manualBytes.slice(0, 50)));
+      
+      // Try to decode our manual encoding
+      const decoder = getCreateTransactionFromBufferInstructionDataDecoder();
+      const manualDecoded = decoder.decode(manualBytes);
+      console.log('✅ Manual decode succeeded:', manualDecoded);
+      
+      // Compare manual vs generated instruction bytes
+      console.log('🔍 COMPARISON:');
+      console.log('  Generated instruction bytes (first 50):', Array.from(createFromBufferIx.data.slice(0, 50)));
+      console.log('  Manual encoded bytes    (first 50):', Array.from(manualBytes.slice(0, 50)));
+      console.log('  Bytes match:', Array.from(createFromBufferIx.data.slice(0, 50)).join(',') === Array.from(manualBytes.slice(0, 50)).join(','));
+      
+    } catch (manualErr) {
+      console.error('❌ Manual encoding ALSO failed:', manualErr);
+      console.error('❌ This suggests a fundamental issue with our argument values or types');
+    }
   }
 
   const createProposalIx = getCreateProposalInstruction({
