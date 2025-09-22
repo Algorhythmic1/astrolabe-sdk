@@ -378,6 +378,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     ephemeralSigners: 0,
     transactionMessage: Array.from(new Uint8Array([0, 0, 0, 0, 0, 0])),
     memo: memo || null,
+    bufferIndex: chosenBufferIndex & 0xFF,
   });
   
   // Use the generated instruction function with exact same args structure as working transactions
@@ -395,6 +396,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
       ephemeralSigners: 0,
       transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
       memo: memo || null,
+      bufferIndex: chosenBufferIndex & 0xFF, // Add the buffer index to fix circular dependency
     },
   });
   
