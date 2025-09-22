@@ -235,6 +235,7 @@ export async function createComplexTransaction(
       ephemeralSigners: 0,
       transactionMessage: transactionMessageBytes,
       memo,
+      bufferIndex: 0, // Ignored for regular transactions
     },
   });
 

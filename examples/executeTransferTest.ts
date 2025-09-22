@@ -174,6 +174,7 @@ async function main() {
         ephemeralSigners: 0,
         transactionMessage: transactionMessageBytes,
         memo: 'Transfer 1 SOL to creator',
+        bufferIndex: 0, // Ignored for regular transactions
     }
   });
 
