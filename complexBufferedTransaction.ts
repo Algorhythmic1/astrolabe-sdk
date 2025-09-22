@@ -30,6 +30,7 @@ type SolanaRpc = ReturnType<typeof createSolanaRpc>;
 
 import {
   getCreateTransactionBufferInstruction,
+  getCreateTransactionBufferInstructionDataDecoder,
   getExtendTransactionBufferInstruction,
   getCreateTransactionFromBufferInstruction,
   getCreateTransactionFromBufferInstructionDataDecoder,
@@ -201,6 +202,14 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   for (let i = 0; i < finalBuffer.length; i += CHUNK) {
     chunks.push(finalBuffer.subarray(i, Math.min(i + CHUNK, finalBuffer.length)));
   }
+  
+  console.log('🔍 Buffer chunking analysis:');
+  console.log('  finalBuffer.length:', finalBuffer.length);
+  console.log('  CHUNK size:', CHUNK);
+  console.log('  chunks.length:', chunks.length);
+  for (let i = 0; i < chunks.length; i++) {
+    console.log(`  chunk[${i}] size:`, chunks[i].length);
+  }
 
   // Derive a free transaction_buffer PDA by probing indices.
   async function deriveBufferPda(idx: number) {
@@ -226,6 +235,13 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   }
 
   // 1) create_transaction_buffer with first slice
+  console.log('🔍 CRITICAL DEBUG - CreateTransactionBuffer parameters:');
+  console.log('  finalBufferSize (before call):', finalBufferSize, 'type:', typeof finalBufferSize);
+  console.log('  chunks[0].length:', chunks[0].length, 'type:', typeof chunks[0].length);
+  console.log('  bufferIndex:', chosenBufferIndex, 'type:', typeof chosenBufferIndex);
+  console.log('  accountIndex:', accountIndex, 'type:', typeof accountIndex);
+  console.log('  finalBufferHash.length:', finalBufferHash.length);
+  
   const createBufferIx = getCreateTransactionBufferInstruction({
     settings: smartAccountSettings,
     transactionBuffer: transactionBufferPda,
@@ -238,6 +254,31 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     finalBufferSize,
     buffer: chunks[0],
   });
+  
+  console.log('🔍 CRITICAL DEBUG - After instruction creation:');
+  console.log('  createBufferIx.data.length:', createBufferIx.data.length);
+  
+  // Let's also decode the instruction data to see what values actually got encoded
+  try {
+    const decoder = getCreateTransactionBufferInstructionDataDecoder();
+    const decoded = decoder.decode(createBufferIx.data);
+    console.log('🔍 DECODED instruction data:');
+    console.log('  decoded.finalBufferSize:', decoded.finalBufferSize, 'type:', typeof decoded.finalBufferSize);
+    console.log('  decoded.buffer.length:', decoded.buffer.length, 'type:', typeof decoded.buffer.length);
+    console.log('  decoded.bufferIndex:', decoded.bufferIndex);
+    console.log('  decoded.accountIndex:', decoded.accountIndex);
+    
+    if (decoded.finalBufferSize !== finalBufferSize) {
+      console.error('❌ CRITICAL BUG: finalBufferSize got corrupted during instruction encoding!');
+      console.error('   Expected:', finalBufferSize, 'Got:', decoded.finalBufferSize);
+    }
+    if (decoded.buffer.length !== chunks[0].length) {
+      console.error('❌ CRITICAL BUG: buffer length got corrupted during instruction encoding!');
+      console.error('   Expected:', chunks[0].length, 'Got:', decoded.buffer.length);
+    }
+  } catch (decodeErr) {
+    console.error('❌ Failed to decode instruction data:', decodeErr);
+  }
 
   const createBufferMessage = pipe(
     createTransactionMessage({ version: 0 }),
@@ -245,6 +286,20 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
     tx => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
     tx => appendTransactionMessageInstructions([createBufferIx], tx)
   );
+  
+  console.log('🔍 CreateTransactionBuffer transaction analysis:');
+  console.log('  chunk[0] size being stored:', chunks[0].length);
+  console.log('  finalBufferSize parameter:', finalBufferSize);
+  console.log('  createBufferIx.data.length:', createBufferIx.data.length);
+  console.log('  createBufferMessage size:', compileTransaction(createBufferMessage).messageBytes.length);
+  
+  // Check if the transaction size exceeds limits
+  const compiledSize = compileTransaction(createBufferMessage).messageBytes.length;
+  if (compiledSize > 1232) {
+    console.error('❌ CRITICAL: CreateTransactionBuffer transaction exceeds 1232 byte limit!');
+    console.error('   Transaction size:', compiledSize);
+    console.error('   This will cause data truncation!');
+  }
   const createBufferTx = new Uint8Array(compileTransaction(createBufferMessage).messageBytes);
 
   // Log the buffer creation transaction (for txWireframe.ts analysis)
