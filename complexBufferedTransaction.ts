@@ -305,6 +305,28 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   // Log the buffer creation transaction (for txWireframe.ts analysis)
   console.log('🔍 Phase 1 - Buffer Creation Transaction (base64):');
   console.log(Buffer.from(createBufferTx).toString('base64'));
+  
+  // CRITICAL: Let's manually decode the base64 transaction to verify the buffer data survives encoding
+  console.log('🔍 CRITICAL: Manual verification of base64 transaction data');
+  const base64Tx = Buffer.from(createBufferTx).toString('base64');
+  const decodedTxBytes = Buffer.from(base64Tx, 'base64');
+  console.log('  Original tx bytes length:', createBufferTx.length);
+  console.log('  Base64 length:', base64Tx.length);  
+  console.log('  Decoded tx bytes length:', decodedTxBytes.length);
+  console.log('  Round-trip successful:', Buffer.compare(new Uint8Array(createBufferTx), new Uint8Array(decodedTxBytes)) === 0);
+  
+  // Find the instruction data within the transaction and verify the buffer content
+  // This will help us confirm that 724 bytes are intact even in the final transaction
+  const createBufferIxDataHex = Buffer.from(createBufferIx.data).toString('hex');
+  const fullTxHex = Buffer.from(createBufferTx).toString('hex');
+  const ixDataIndex = fullTxHex.indexOf(createBufferIxDataHex.substring(0, 50)); // Find first part of instruction
+  if (ixDataIndex >= 0) {
+    console.log('✅ Instruction data found in final transaction at position:', Math.floor(ixDataIndex / 2));
+    const extractedIxHex = fullTxHex.substring(ixDataIndex, ixDataIndex + createBufferIxDataHex.length);
+    console.log('  Instruction data matches:', extractedIxHex === createBufferIxDataHex);
+  } else {
+    console.error('❌ Could not find instruction data in final transaction - this indicates corruption!');
+  }
 
   // 2) extend_transaction_buffer for remaining slices
   const extendTxs: Uint8Array[] = [];
