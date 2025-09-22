@@ -78,41 +78,12 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   const transactionPda = await deriveTransactionPda(smartAccountSettings, nextIndex);
   const proposalPda = await deriveProposalPda(smartAccountSettings, nextIndex);
 
-  // Use proper generated encoder instead of manual serialization
-  const decoded = decodeTransactionMessage(innerTransactionBytes);
+  // CRITICAL FIX: Store raw Jupiter transaction bytes in buffer
+  // The Solana program expects standard TransactionMessage format, not custom SmartAccount format
+  console.log('🔧 Storing raw Jupiter transaction bytes in buffer (standard format)');
+  console.log('🔍 Raw Jupiter transaction length:', innerTransactionBytes.length);
   
-  // Convert from Solana's standard format to SmartAccount format
-  const numSigners = decoded.header.numSignerAccounts;
-  const numReadonlySigners = decoded.header.numReadonlySignerAccounts;
-  const numWritableSigners = numSigners - numReadonlySigners;
-  const numWritableNonSigners = decoded.staticAccounts.length - numSigners - decoded.header.numReadonlyNonSignerAccounts;
-  
-  // Convert instructions from standard format to SmartAccount format
-  const smartAccountInstructions = decoded.instructions.map(ix => ({
-    programIdIndex: ix.programAddressIndex, // Convert field name
-    accountIndexes: new Uint8Array(ix.accountIndices || []), // Convert field name
-    data: new Uint8Array(ix.data || [])
-  }));
-  
-  // Convert address table lookups
-  const smartAccountLookups = addressTableLookups.map(lookup => ({
-    accountKey: typeof lookup.accountKey === 'string' ? address(lookup.accountKey) : lookup.accountKey,
-    writableIndexes: new Uint8Array(lookup.writableIndexes || []),
-    readonlyIndexes: new Uint8Array(lookup.readonlyIndexes || [])
-  }));
-  
-  // Create the SmartAccount format message
-  const smartAccountMessage = {
-    numSigners,
-    numWritableSigners,
-    numWritableNonSigners,
-    accountKeys: decoded.staticAccounts.map(addr => typeof addr === 'string' ? address(addr) : addr),
-    instructions: smartAccountInstructions,
-    addressTableLookups: smartAccountLookups
-  };
-  
-  // Use the generated encoder to properly serialize
-  const messageBytes = getSmartAccountTransactionMessageEncoder().encode(smartAccountMessage);
+  const messageBytes = innerTransactionBytes; // Use Jupiter's raw transaction bytes directly
 
   // Log the transaction message being stored (for txWireframe.ts analysis)
   console.log('🔍 Manual TransactionMessage for Buffer:');
