@@ -14,6 +14,8 @@ export type CreateTransactionArgs = {
     ephemeralSigners: number;
     transactionMessage: ReadonlyUint8Array;
     memo: Option<string>;
+    /** Buffer index (only used for CreateTransactionFromBuffer, ignored for regular transactions) */
+    bufferIndex: number;
 };
 export type CreateTransactionArgsArgs = {
     /** Index of the smart account this transaction belongs to. */
@@ -23,6 +25,8 @@ export type CreateTransactionArgsArgs = {
     ephemeralSigners: number;
     transactionMessage: ReadonlyUint8Array;
     memo: OptionOrNullable<string>;
+    /** Buffer index (only used for CreateTransactionFromBuffer, ignored for regular transactions) */
+    bufferIndex: number;
 };
 export declare function getCreateTransactionArgsEncoder(): Encoder<CreateTransactionArgsArgs>;
 export declare function getCreateTransactionArgsDecoder(): Decoder<CreateTransactionArgs>;

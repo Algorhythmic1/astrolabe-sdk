@@ -445,6 +445,7 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
           ephemeralSigners: 0,
           transactionMessage: new Uint8Array([0, 0, 0, 0, 0, 0]),
           memo: memo || null,
+          bufferIndex: chosenBufferIndex & 0xFF,
         }
       };
       
