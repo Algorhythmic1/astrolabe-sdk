@@ -207,6 +207,17 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   // Debug parameters BEFORE validation
   console.log('🚨 DEBUG: smartAccountPdaBump parameter value:', smartAccountPdaBump, 'type:', typeof smartAccountPdaBump);
   console.log('🚨 DEBUG: accountIndex parameter value:', accountIndex, 'type:', typeof accountIndex);
+  console.log('🚨 DEBUG: memo parameter value:', memo, 'type:', typeof memo);
+  console.log('🚨 DEBUG: smartAccountSettings:', smartAccountSettings);
+  console.log('🚨 DEBUG: smartAccountPda:', smartAccountPda);
+  
+  // Check for undefined/null values that might cause encoding issues
+  if (smartAccountPdaBump === undefined || smartAccountPdaBump === null) {
+    console.error('❌ CRITICAL: smartAccountPdaBump is undefined/null!');
+  }
+  if (accountIndex === undefined || accountIndex === null) {
+    console.error('❌ CRITICAL: accountIndex is undefined/null!');
+  }
   
   // Validate u8 values to prevent BorshIoError
   if (typeof accountIndex !== 'number' || accountIndex < 0 || accountIndex > 255) {
@@ -252,8 +263,31 @@ export async function createComplexBufferedTransaction(params: BufferedTransacti
   try {
     const decoded = getCreateTransactionFromBufferInstructionDataDecoder().decode(createFromBufferIx.data);
     console.log('✅ SDK can decode instruction data:', decoded);
+    
+    // Extra debugging - validate the actual values being passed
+    console.log('🔍 Detailed instruction validation:');
+    console.log('  accountIndex (raw):', accountIndex, 'masked:', accountIndex & 0xFF);
+    console.log('  smartAccountPdaBump (raw):', smartAccountPdaBump, 'masked:', smartAccountPdaBump & 0xFF);
+    console.log('  transactionMessage length:', new Uint8Array([0, 0, 0, 0, 0, 0]).length);
+    console.log('  memo type:', typeof memo, 'value:', memo);
+    
+    // Verify the decoded values match what we expect
+    if (decoded.args.accountIndex !== (accountIndex & 0xFF)) {
+      console.error('❌ accountIndex mismatch! expected:', accountIndex & 0xFF, 'got:', decoded.args.accountIndex);
+    }
+    if (decoded.args.accountBump !== (smartAccountPdaBump & 0xFF)) {
+      console.error('❌ accountBump mismatch! expected:', smartAccountPdaBump & 0xFF, 'got:', decoded.args.accountBump);
+    }
+    if (Array.from(decoded.args.transactionMessage).join(',') !== '0,0,0,0,0,0') {
+      console.error('❌ transactionMessage mismatch! expected: 0,0,0,0,0,0 got:', Array.from(decoded.args.transactionMessage).join(','));
+    }
+    
   } catch (err) {
     console.error('❌ SDK cannot decode its own instruction data:', err);
+    console.error('❌ This suggests a serious encoding problem with the following values:');
+    console.error('  accountIndex:', accountIndex, '(type:', typeof accountIndex, ')');
+    console.error('  smartAccountPdaBump:', smartAccountPdaBump, '(type:', typeof smartAccountPdaBump, ')');
+    console.error('  memo:', memo, '(type:', typeof memo, ')');
   }
 
   const createProposalIx = getCreateProposalInstruction({
